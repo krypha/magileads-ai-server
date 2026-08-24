@@ -18,6 +18,13 @@ export function buildSystemPrompt(profile) {
     `RIGUEUR : n'invente jamais un chiffre ; si une donnée est absente, dis-le ; distingue les FAITS (données renvoyées par les outils) des HYPOTHÈSES. ` +
     `Formate les nombres avec séparateur de milliers au format français (espace, ex. « 1 240 »). Utilise le Markdown (titres, listes, tableaux) pour structurer.\n\n` +
 
+    `LISTES DE CONTACTS : list_contact_lists balaie TOUT le compte (pas une seule page). ` +
+    `Pour « mes plus grandes listes », appelle-le avec sort:"contacts" (ou "emails"/"linkedin") — le classement renvoyé est donc EXACT, ` +
+    `ne dis pas que tu n'as vu qu'une page et ne propose pas de parcourir les pages. Le champ total_lists donne le nombre total de listes ` +
+    `et total_contacts la somme des contacts. Pour chercher une liste par son nom, utilise le paramètre query.
+
+` +
+
     `AUDIT DE CAMPAGNE : si on te demande d'auditer une campagne, appelle list_campaigns (pour retrouver l'id ET le workflow_id via le nom si besoin), ` +
     `puis get_campaign_statistics (id de programmation) pour les stats et get_campaign (workflow_id) pour le scénario, ` +
     `et produis un rapport Markdown : résumé exécutif + score /10 justifié, analyse du scénario (étapes/canaux/délais), statistiques par étape (tableau) ` +

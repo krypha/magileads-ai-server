@@ -112,6 +112,14 @@ export const extractGoogleMaps = (auth, body) =>
 export const listContactListsPaginated = (auth, options, page = 1) =>
   request(`/contact-lists-paginated/page/${page}${optionsQuery(options)}`, { auth });
 
+/**
+ * TOUTES les listes en un seul appel (non paginé) avec leurs compteurs.
+ * Indispensable pour répondre juste à « mes plus grandes listes » : l'endpoint
+ * paginé ne trie que par nom/id, donc on ne verrait qu'une page sur N.
+ * Mesuré ~5x plus rapide que /contact-lists-paginated.
+ */
+export const listContactListNames = (auth) => request("/contact-lists/names", { auth });
+
 export const getContactListProfile = (auth, id) => request(`/contact-lists/${id}`, { auth });
 
 export const listContactListContacts = (auth, id, options) =>

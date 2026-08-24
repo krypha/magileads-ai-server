@@ -16,6 +16,7 @@ import {
   generateGoogleMapsUrls,
   extractGoogleMaps,
   listContactListsPaginated,
+  listContactListNames,
   getContactListProfile,
   listContactListContacts,
   searchContactListContacts,
@@ -85,12 +86,19 @@ export const AI_TOOLS = [
     function: {
       name: "list_contact_lists",
       description:
-        "Liste les listes de contacts du compte (nom, nb de contacts/emails/LinkedIn). Recherche libre optionnelle.",
+        "Listes de contacts du compte. Balaie TOUTES les listes (pas seulement une page) : le tri et la recherche portent donc sur l'intégralité du compte. Renvoie aussi les totaux (nombre de listes, total de contacts). Utilise sort=\"contacts\" pour « mes plus grandes listes ».",
       parameters: {
         type: "object",
         properties: {
-          query: { type: "string", description: "Filtre texte sur le nom (optionnel)." },
-          page: { type: "number", description: "Page (défaut 1)." },
+          query: { type: "string", description: "Filtre sur le nom (contient, insensible à la casse). Optionnel." },
+          sort: {
+            type: "string",
+            enum: ["contacts", "emails", "linkedin", "companies", "recent", "name"],
+            description:
+              "Tri sur TOUT le compte : contacts/emails/linkedin/companies = décroissant (les plus grandes d'abord), recent = plus récentes, name = alphabétique. Défaut : recent.",
+          },
+          limit: { type: "number", description: "Nombre de listes à renvoyer (défaut 20, max 50)." },
+          page: { type: "number", description: "Page dans le résultat trié (défaut 1)." },
         },
       },
     },
@@ -450,17 +458,66 @@ export async function executeTool(name, argsRaw, auth) {
       }
 
       case "list_contact_lists": {
+        const limit = Math.min(Math.max(Number(args.limit) || 20, 1), 50);
+        const page = Math.max(Number(args.page) || 1, 1);
+        const query = typeof args.query === "string" ? args.query.trim().toLowerCase() : "";
+        const sort = typeof args.sort === "string" ? args.sort : "recent";
+
+        // /contact-lists/names renvoie TOUTES les listes d'un coup (non paginé) et
+        // plus vite que l'endpoint paginé : c'est ce qui permet un classement exact
+        // « les plus grandes listes » au lieu d'un tri sur une seule page.
+        const all = await listContactListNames(auth);
+        if (all.ok && Array.isArray(all.data?.contact_lists)) {
+          let rows = all.data.contact_lists.map((l) => ({
+            id: l.id,
+            name: l.name,
+            contacts: l.number_of_contacts ?? 0,
+            emails: l.number_of_emails ?? 0,
+            linkedin: l.number_of_linkedin_url ?? 0,
+            companies: l.number_of_companies ?? 0,
+            list_type: l.list_type,
+            created_on: l.created_on,
+          }));
+          const totalLists = rows.length;
+          const totalContacts = rows.reduce((n, l) => n + (l.contacts || 0), 0);
+
+          if (query) rows = rows.filter((l) => String(l.name ?? "").toLowerCase().includes(query));
+          const matched = rows.length;
+
+          const byDesc = (k) => (a, b) => (b[k] || 0) - (a[k] || 0);
+          if (sort === "contacts") rows.sort(byDesc("contacts"));
+          else if (sort === "emails") rows.sort(byDesc("emails"));
+          else if (sort === "linkedin") rows.sort(byDesc("linkedin"));
+          else if (sort === "companies") rows.sort(byDesc("companies"));
+          else if (sort === "name") rows.sort((a, b) => String(a.name).localeCompare(String(b.name), "fr"));
+          else rows.sort((a, b) => (b.id || 0) - (a.id || 0)); // recent
+
+          const start = (page - 1) * limit;
+          return cap({
+            scope: "TOUTES les listes du compte (non paginé) — le classement est donc exact",
+            total_lists: totalLists,
+            total_contacts: totalContacts,
+            matched,
+            sorted_by: sort,
+            page,
+            total_pages: Math.max(Math.ceil(matched / limit), 1),
+            lists: rows.slice(start, start + limit),
+          });
+        }
+
+        // Repli : ancien endpoint paginé (tri limité à name/id, une page à la fois).
         const options = { per_page: 50 };
-        if (typeof args.query === "string" && args.query) {
+        if (query) {
           options.filter = {
             mode: "or",
             values: [{ field_name: "name", type: "contains", value: args.query }],
           };
         }
-        const r = await listContactListsPaginated(auth, options, Number(args.page) || 1);
+        const r = await listContactListsPaginated(auth, options, page);
         if (!r.ok || !r.data) return cap({ error: "listes indisponibles" });
         const env = r.data;
         return cap({
+          scope: "UNE page seulement (repli) — un classement global n'est pas garanti",
           total: env.number_of_results ?? env.results?.length ?? 0,
           total_pages: env.number_of_pages ?? 1,
           lists: (env.results ?? []).slice(0, 50).map((l) => ({
