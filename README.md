@@ -227,7 +227,46 @@ retiré si tu passes par le proxy Dokploy).
 
 ---
 
-## 8. Notes d'exploitation
+## 8. Dépannage
+
+### `401 Unauthorized` sur `POST /ai/chat`
+
+Dans 99 % des cas : **l'access_token Magileads est expiré** (durée de vie
+**30 minutes**). Le serveur valide le token via `GET /users/me` et relaie tel quel
+le verdict de Magileads.
+
+Diagnostic en 10 secondes :
+
+```bash
+# 1) Le token est-il encore vivant ? (source de vérité)
+curl -s https://app.api-magileads.net/users/me -H "Authorization: Bearer $TOKEN"
+#   -> {"state":false,"state_message":"token_expired"}  = token mort, pas un bug serveur
+
+# 2) Le serveur est-il debout ?
+curl -s https://<ton-domaine>/health          # -> {"ok":true,"configured":true}
+```
+
+Décoder l'expiration d'un token :
+
+```bash
+node -e "const p=JSON.parse(Buffer.from(process.argv[1].split('.')[1],'base64url'));\
+console.log('expire:',new Date(p.exp*1000).toISOString(),'| maintenant:',new Date().toISOString())" "$TOKEN"
+```
+
+**Corriger côté front** (à ne surtout pas rater) :
+
+- ❌ Ne **jamais coder en dur** un token pour tester : il meurt en 30 min.
+- ✅ Lire le token **au moment de l'envoi** :
+  `getAccessToken={() => useSessionStore.getState().session?.access_token}`
+- ✅ Brancher `onAuthError` (cf. §5) : sur 401 le composant appelle ton refresh
+  puis **retente automatiquement une fois** avec le token frais.
+
+Autres codes : `403` = origine absente de `ALLOWED_ORIGINS` · `429` = rate limit ·
+`503` = `AI_API_KEY`/`AI_MODEL` manquants côté serveur.
+
+---
+
+## 9. Notes d'exploitation
 
 - **Modèle** : un modèle gratuit peut tomber en `429` ou disparaître
   (« No endpoints found ») — pour la prod, prends un modèle payant / ta clé BYOK.

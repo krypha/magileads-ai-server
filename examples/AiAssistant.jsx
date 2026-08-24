@@ -95,7 +95,7 @@ export default function AiAssistant({
   }, []);
 
   const send = useCallback(
-    async (override, isRetry = false) => {
+    async (override) => {
       const text = (override ?? input).trim();
       if (!text || streaming) return;
       if (!override) setInput("");
@@ -112,93 +112,101 @@ export default function AiAssistant({
       setStreaming(true);
       setTool(null);
 
-      const ctrl = new AbortController();
-      abortRef.current = ctrl;
-
       try {
-        const token = getAccessToken?.();
-        const res = await fetch(`${serverUrl}/ai/chat`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: JSON.stringify({ messages: history, tier }),
-          signal: ctrl.signal,
-        });
+        // 2 tentatives max : la 1re peut échouer en 401 si l'access_token a expiré
+        // (durée de vie ~30 min). On laisse le front le rafraîchir, puis on retente.
+        for (let attempt = 0; attempt < 2; attempt++) {
+          // Le token est relu À CHAQUE tentative → jamais un token périmé en cache.
+          const token = getAccessToken?.();
+          const ctrl = new AbortController();
+          abortRef.current = ctrl;
 
-        if (res.status === 401) {
-          // Le serveur ne rafraîchit pas : on laisse le front le faire, puis on retente.
-          if (!isRetry && onAuthError) {
-            await onAuthError();
-            setMessages((prev) => prev.filter((m) => m.id !== aId && m.id !== userMsg.id));
-            setStreaming(false);
-            return send(text, true);
-          }
-          patch(aId, { content: "_Session expirée — reconnecte-toi._" });
-          return;
-        }
-        if (res.status === 429) {
-          patch(aId, { content: "_Trop de requêtes, réessaie dans une minute._" });
-          return;
-        }
-        if (res.status === 503) {
-          patch(aId, { content: "_L'assistant n'est pas configuré côté serveur._" });
-          return;
-        }
-        if (!res.ok || !res.body) {
-          patch(aId, { content: "_Une erreur est survenue._" });
-          return;
-        }
-
-        const reader = res.body.getReader();
-        const dec = new TextDecoder();
-        const parse = createSseParser();
-        let acc = "";
-
-        for (;;) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          for (const ev of parse(dec.decode(value, { stream: true }))) {
-            if (ev.event === "tool.progress") {
-              try {
-                const j = JSON.parse(ev.data);
-                setTool(j.status === "completed" ? null : j.label || j.tool);
-              } catch {
-                /* ignore */
-              }
-              continue;
+          let res;
+          try {
+            res = await fetch(`${serverUrl}/ai/chat`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                ...(token ? { Authorization: `Bearer ${token}` } : {}),
+              },
+              body: JSON.stringify({ messages: history, tier }),
+              signal: ctrl.signal,
+            });
+          } catch (e) {
+            if (e?.name !== "AbortError") {
+              setError(String(e?.message || e));
+              patch(aId, { content: "_Impossible de joindre le serveur IA._" });
             }
-            if (ev.event === "linkedin.accounts") {
-              // Carte cliquable alimentée par le SERVEUR (données réelles).
+            break;
+          }
+
+          if (res.status === 401) {
+            // Le serveur ne rafraîchit pas les tokens : c'est le front qui gère.
+            if (attempt === 0 && onAuthError) {
+              await onAuthError();
+              continue; // on retente avec le token fraîchement rafraîchi
+            }
+            patch(aId, { content: "_Session expirée — reconnecte-toi._" });
+            break;
+          }
+          if (res.status === 429) {
+            patch(aId, { content: "_Trop de requêtes, réessaie dans une minute._" });
+            break;
+          }
+          if (res.status === 503) {
+            patch(aId, { content: "_L'assistant n'est pas configuré côté serveur._" });
+            break;
+          }
+          if (!res.ok || !res.body) {
+            patch(aId, { content: "_Une erreur est survenue._" });
+            break;
+          }
+
+          const reader = res.body.getReader();
+          const dec = new TextDecoder();
+          const parse = createSseParser();
+          let acc = "";
+
+          for (;;) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            for (const ev of parse(dec.decode(value, { stream: true }))) {
+              if (ev.event === "tool.progress") {
+                try {
+                  const j = JSON.parse(ev.data);
+                  setTool(j.status === "completed" ? null : j.label || j.tool);
+                } catch {
+                  /* ignore */
+                }
+                continue;
+              }
+              if (ev.event === "linkedin.accounts") {
+                // Carte cliquable alimentée par le SERVEUR (données réelles).
+                try {
+                  const j = JSON.parse(ev.data);
+                  if (Array.isArray(j.accounts) && j.accounts.length) {
+                    patch(aId, { pick: { accounts: j.accounts } });
+                  }
+                } catch {
+                  /* ignore */
+                }
+                continue;
+              }
+              if (!ev.data || ev.data === "[DONE]") continue;
               try {
                 const j = JSON.parse(ev.data);
-                if (Array.isArray(j.accounts) && j.accounts.length) {
-                  patch(aId, { pick: { accounts: j.accounts } });
+                const delta = j.choices?.[0]?.delta?.content;
+                if (delta) {
+                  acc += delta;
+                  patch(aId, { content: acc });
                 }
               } catch {
-                /* ignore */
+                /* keep-alive */
               }
-              continue;
-            }
-            if (!ev.data || ev.data === "[DONE]") continue;
-            try {
-              const j = JSON.parse(ev.data);
-              const delta = j.choices?.[0]?.delta?.content;
-              if (delta) {
-                acc += delta;
-                patch(aId, { content: acc });
-              }
-            } catch {
-              /* keep-alive */
             }
           }
-        }
-        if (!acc) patch(aId, { content: "_(réponse vide)_" });
-      } catch (e) {
-        if (e?.name !== "AbortError") {
-          setError(String(e?.message || e));
-          patch(aId, { content: "_Impossible de joindre le serveur IA._" });
+          if (!acc) patch(aId, { content: "_(réponse vide)_" });
+          break; // terminé
         }
       } finally {
         setStreaming(false);
