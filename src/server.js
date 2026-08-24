@@ -30,12 +30,12 @@ const AI_API_KEY = process.env.AI_API_KEY;
 const AI_MODEL = process.env.AI_MODEL;
 const AI_MODEL_COMPLEX = process.env.AI_MODEL_COMPLEX;
 
-// Palier "free" : liste de modèles gratuits, essayés DANS L'ORDRE. Les modèles
-// `:free` d'OpenRouter disparaissent ou saturent (404 / 429) — on bascule donc
-// automatiquement sur le suivant. Ils doivent supporter le function calling.
-const AI_MODEL_FREE =
-  process.env.AI_MODEL_FREE ||
-  "z-ai/glm-5.2:free,nvidia/nemotron-3-super-120b-a12b:free,google/gemma-4-31b-it:free";
+// Palier "free" : par défaut `openrouter/free`, un routeur géré par OpenRouter qui
+// choisit lui-même un modèle gratuit disponible (et supporte le function calling).
+// On accepte quand même une LISTE séparée par des virgules : les candidats sont
+// alors essayés dans l'ordre, avec bascule automatique si l'un est saturé (429),
+// retiré (404) ou devenu payant (402) — utile si l'on épingle des modèles précis.
+const AI_MODEL_FREE = process.env.AI_MODEL_FREE || "openrouter/free";
 
 // Palier "custom" : le client fournit lui-même l'id du modèle (ex. stealth/ox-alpha).
 const ALLOW_CUSTOM_MODEL = process.env.ALLOW_CUSTOM_MODEL !== "false";

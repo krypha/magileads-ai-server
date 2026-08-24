@@ -61,7 +61,7 @@ npm run start:node       # node --env-file=.env src/server.js
 | `MAGILEADS_API_BASE` | `https://app.api-magileads.net`                                  |
 | `AI_API_URL`         | Fournisseur compatible OpenAI (défaut OpenRouter)                |
 | `AI_API_KEY`         | Clé du fournisseur (**serveur uniquement**)                      |
-| `AI_MODEL_FREE`      | Palier « Gratuit » : modèles `:free` séparés par des virgules, essayés dans l'ordre |
+| `AI_MODEL_FREE`      | Palier « Gratuit » — défaut `openrouter/free` (routeur géré par OpenRouter). Accepte aussi une liste séparée par des virgules, essayée dans l'ordre |
 | `AI_MODEL`           | Modèle du palier « Simple » (palier par défaut)                  |
 | `AI_MODEL_COMPLEX`   | Modèle du palier « Complexe » (si vide → = Simple)               |
 | `ALLOW_CUSTOM_MODEL` | `false` pour désactiver le palier « Perso. »                      |
@@ -114,7 +114,7 @@ Mantine le fait déjà via `getAuthHeaders`.
 
 | Palier | Modèle utilisé | Particularité |
 | ------ | -------------- | ------------- |
-| `free` | `AI_MODEL_FREE` (liste) | **Bascule automatique** sur le candidat suivant si le modèle est saturé (429), retiré (404) ou payant (402) |
+| `free` | `AI_MODEL_FREE` (défaut `openrouter/free`) | OpenRouter choisit lui-même un modèle gratuit. Si l'on épingle une liste, **bascule automatique** sur le suivant en cas de 429/404/402 |
 | `simple` | `AI_MODEL` | palier par défaut |
 | `complex` | `AI_MODEL_COMPLEX` | retombe sur `AI_MODEL` si non défini |
 | `custom` | fourni par le client | pour tester un modèle précis |
