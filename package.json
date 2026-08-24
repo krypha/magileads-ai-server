@@ -1,0 +1,17 @@
+{
+  "name": "groleads-ai-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Serveur autonome de l'assistant IA Groleads (streaming SSE + tool-calling), utilisable depuis n'importe quel front.",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "bun src/server.js",
+    "dev": "bun --watch src/server.js",
+    "start:node": "node --env-file=.env src/server.js",
+    "dev:node": "node --env-file=.env --watch src/server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

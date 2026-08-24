@@ -1,0 +1,44 @@
+# Groleads AI Server — déploiement Docker / Dokploy.
+#
+# Dokploy : soit "Application" (build du Dockerfile) et tu saisis les variables
+# dans l'UI, soit "Compose" avec ce fichier. Les valeurs viennent d'un .env à
+# côté de ce fichier (ou des variables définies dans Dokploy).
+
+services:
+  ai-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: groleads-ai-server:latest
+    container_name: groleads-ai-server
+    restart: unless-stopped
+    ports:
+      # Derrière le reverse-proxy Dokploy (Traefik), tu peux retirer ce mapping
+      # et exposer le service via un domaine sur le port 8787.
+      - "${PORT:-8787}:8787"
+    environment:
+      PORT: 8787
+      # Origines autorisées (CORS) : mets l'URL EXACTE de ton front React.
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-*}
+      RATE_LIMIT_PER_MIN: ${RATE_LIMIT_PER_MIN:-20}
+      MAGILEADS_API_BASE: ${MAGILEADS_API_BASE:-https://app.api-magileads.net}
+      # Fournisseur du modèle (compatible OpenAI, avec function calling).
+      AI_API_URL: ${AI_API_URL:-https://openrouter.ai/api/v1}
+      AI_API_KEY: ${AI_API_KEY:?AI_API_KEY est requis}
+      AI_MODEL: ${AI_MODEL:?AI_MODEL est requis}
+      AI_MODEL_COMPLEX: ${AI_MODEL_COMPLEX:-}
+    healthcheck:
+      test:
+        - CMD
+        - bun
+        - -e
+        - "fetch('http://127.0.0.1:8787/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
