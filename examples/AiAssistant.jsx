@@ -1,5 +1,5 @@
 /**
- * AiAssistant — composant React de test pour le serveur IA Groleads.
+ * AiAssistant — composant React de test pour le serveur IA Magileads.
  *
  * Zéro dépendance (JSX + styles inline) → se colle dans n'importe quel front.
  *
@@ -238,7 +238,7 @@ export default function AiAssistant({
       <header style={S.header}>
         <div>
           <div style={{ fontWeight: 600 }}>Assistant IA</div>
-          <div style={S.sub}>Groleads</div>
+          <div style={S.sub}>Magileads</div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
           <div style={S.tierGroup}>

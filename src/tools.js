@@ -36,7 +36,7 @@ export const AI_TOOLS = [
     function: {
       name: "get_account_overview",
       description:
-        "Profil du compte Groleads connecté (nom, email, abonnement). Pas de solde de crédits exposé par l'API.",
+        "Profil du compte Magileads connecté (nom, email, abonnement). Pas de solde de crédits exposé par l'API.",
       parameters: { type: "object", properties: {} },
     },
   },

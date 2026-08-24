@@ -1,5 +1,5 @@
 /**
- * Groleads AI Assistant — standalone streaming server.
+ * Magileads AI Assistant — standalone streaming server.
  *
  * Same behaviour as the Next.js route /api/ai/chat, but usable from ANY front-end.
  * Runs on Bun or Node 18+ (zero dependencies, uses node:http + global fetch).

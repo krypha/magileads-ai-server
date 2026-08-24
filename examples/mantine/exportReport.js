@@ -77,7 +77,7 @@ const PRINT_CSS = `
 export function reportTitleFrom(markdown) {
   const m = String(markdown).match(/^\s*#{1,3}\s+(.+?)\s*#*\s*$/m);
   const t = m?.[1]?.trim();
-  return t && t.length <= 120 ? t : "Rapport — Groleads";
+  return t && t.length <= 120 ? t : "Rapport — Magileads";
 }
 
 function buildDoc(contentHtml, title, date) {
@@ -89,10 +89,10 @@ function buildDoc(contentHtml, title, date) {
     `content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:">` +
     `<title>${escapeHtml(title)}</title><style>${PRINT_CSS}</style></head>` +
     `<body><div class="sheet">` +
-    `<header class="report-header"><div class="brand">Groleads</div>` +
+    `<header class="report-header"><div class="brand">Magileads</div>` +
     `<h1>${escapeHtml(title)}</h1><div class="date">${escapeHtml(date)}</div></header>` +
     `<main class="report-body">${contentHtml}</main>` +
-    `<footer class="report-footer">Généré par l'assistant IA · Groleads</footer>` +
+    `<footer class="report-footer">Généré par l'assistant IA · Magileads</footer>` +
     `</div></body></html>`
   );
 }
