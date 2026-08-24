@@ -3,6 +3,10 @@
  *
  * Zéro dépendance (JSX + styles inline) → se colle dans n'importe quel front.
  *
+ * ⚠️ Version de RÉFÉRENCE (minimale). Pour la version complète — paliers de modèle
+ * Gratuit/Simple/Complexe/Perso., rendu Markdown, export de rapport, compte switché
+ * (X-API-Key) — utilise plutôt `examples/mantine/`.
+ *
  *   import AiAssistant from "./AiAssistant";
  *   <AiAssistant serverUrl="http://localhost:8787" />
  *

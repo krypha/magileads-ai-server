@@ -61,8 +61,10 @@ npm run start:node       # node --env-file=.env src/server.js
 | `MAGILEADS_API_BASE` | `https://app.api-magileads.net`                                  |
 | `AI_API_URL`         | Fournisseur compatible OpenAI (défaut OpenRouter)                |
 | `AI_API_KEY`         | Clé du fournisseur (**serveur uniquement**)                      |
-| `AI_MODEL`           | Modèle du palier « Simple »                                      |
+| `AI_MODEL_FREE`      | Palier « Gratuit » : modèles `:free` séparés par des virgules, essayés dans l'ordre |
+| `AI_MODEL`           | Modèle du palier « Simple » (palier par défaut)                  |
 | `AI_MODEL_COMPLEX`   | Modèle du palier « Complexe » (si vide → = Simple)               |
+| `ALLOW_CUSTOM_MODEL` | `false` pour désactiver le palier « Perso. »                      |
 
 > ⚠️ Le modèle doit supporter le **function calling**.
 
@@ -76,9 +78,16 @@ npm run start:node       # node --env-file=.env src/server.js
 
 ```
 Content-Type: application/json
-Authorization: Bearer <access_token Magileads de l'utilisateur>
-   (ou)  X-API-Key: <clé API Magileads>
+Authorization: Bearer <access_token Magileads du compte principal>
+X-API-Key:     <token du compte SWITCHÉ>        (optionnel)
 ```
+
+⚠️ **Compte switché** : envoie les **deux** en-têtes, exactement comme
+l'interceptor axios de l'app (`config.headers["X-API-Key"] = user_switch.token`).
+Le serveur les transmet **tels quels** à Magileads, et **Magileads privilégie
+`X-API-Key`** (vérifié : Bearer valide + `X-API-Key` invalide → `401`). L'assistant
+agit donc sur le **même compte** que le reste de l'application. Le composant
+Mantine le fait déjà via `getAuthHeaders`.
 
 **Corps**
 
@@ -93,9 +102,22 @@ Authorization: Bearer <access_token Magileads de l'utilisateur>
 }
 ```
 
-- `tier` : `"simple"` | `"complex"` — l'utilisateur ne voit jamais le nom du modèle.
+- `tier` : `"free"` | `"simple"` | `"complex"` | `"custom"`. Le nom du modèle reste
+  côté serveur, **sauf** pour `custom`.
+- `model` : **uniquement** avec `tier: "custom"` — l'id du modèle (ex.
+  `stealth/ox-alpha`). Format validé côté serveur (`editeur/modele`) ; sinon
+  `400 invalid_custom_model`.
 - `messages` : tout l'historique (le modèle est sans mémoire). Seuls les rôles
   `user`/`assistant` sont acceptés (un client ne peut pas injecter de `system`).
+
+**Paliers de modèle**
+
+| Palier | Modèle utilisé | Particularité |
+| ------ | -------------- | ------------- |
+| `free` | `AI_MODEL_FREE` (liste) | **Bascule automatique** sur le candidat suivant si le modèle est saturé (429), retiré (404) ou payant (402) |
+| `simple` | `AI_MODEL` | palier par défaut |
+| `complex` | `AI_MODEL_COMPLEX` | retombe sur `AI_MODEL` si non défini |
+| `custom` | fourni par le client | pour tester un modèle précis |
 
 **Réponse : `text/event-stream`**
 
@@ -104,6 +126,7 @@ Authorization: Bearer <access_token Magileads de l'utilisateur>
 | *(sans event)*            | `{"choices":[{"delta":{"content":"…"}}]}`                            | morceau de texte à concaténer        |
 | `event: tool.progress`    | `{tool,label,status:"running"\|"completed",creates_list}`            | indicateur « ⚙️ Lecture des listes… » |
 | `event: linkedin.accounts`| `{accounts:[{id,name,username}]}`                                    | carte cliquable de choix de compte   |
+| `event: model.info`       | `{tier, model, fallback}`                                            | modèle réellement utilisé (utile si le palier Gratuit a basculé) |
 | *(sans event)*            | `[DONE]`                                                             | fin du flux                          |
 
 **Codes d'erreur** : `401` (token absent/expiré → rafraîchis et retente),

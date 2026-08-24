@@ -30,6 +30,41 @@ const AI_API_KEY = process.env.AI_API_KEY;
 const AI_MODEL = process.env.AI_MODEL;
 const AI_MODEL_COMPLEX = process.env.AI_MODEL_COMPLEX;
 
+// Palier "free" : liste de modèles gratuits, essayés DANS L'ORDRE. Les modèles
+// `:free` d'OpenRouter disparaissent ou saturent (404 / 429) — on bascule donc
+// automatiquement sur le suivant. Ils doivent supporter le function calling.
+const AI_MODEL_FREE =
+  process.env.AI_MODEL_FREE ||
+  "z-ai/glm-5.2:free,nvidia/nemotron-3-super-120b-a12b:free,google/gemma-4-31b-it:free";
+
+// Palier "custom" : le client fournit lui-même l'id du modèle (ex. stealth/ox-alpha).
+const ALLOW_CUSTOM_MODEL = process.env.ALLOW_CUSTOM_MODEL !== "false";
+// Format attendu : "editeur/modele" (+ variantes ":free", ":beta", "-2.1"…).
+const CUSTOM_MODEL_RE = /^[a-z0-9][\w.-]*\/[\w.:-]{1,80}$/i;
+
+/** Statuts upstream pour lesquels un autre modèle candidat vaut le coup. */
+const RETRIABLE_UPSTREAM = [402, 404, 429, 502, 503];
+
+/**
+ * Palier -> liste de modèles candidats (essayés dans l'ordre).
+ * Le nom du modèle reste côté serveur pour les paliers "produit"
+ * (free/simple/complex) ; seul "custom" est piloté par le client.
+ */
+function resolveModels(tier, customModel) {
+  if (tier === "custom") {
+    if (!ALLOW_CUSTOM_MODEL) return [];
+    const m = String(customModel || "").trim();
+    return CUSTOM_MODEL_RE.test(m) ? [m] : [];
+  }
+  if (tier === "free") {
+    return AI_MODEL_FREE.split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+  if (tier === "complex") return [AI_MODEL_COMPLEX || AI_MODEL].filter(Boolean);
+  return [AI_MODEL].filter(Boolean); // "simple" (défaut)
+}
+
 // "*" allows any origin (dev). In production list your front origins, comma-separated.
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || "*")
   .split(",")
@@ -96,15 +131,23 @@ function readBody(req) {
   });
 }
 
-/** Credentials of the CALLER (never a shared/global account). */
+/**
+ * Credentials of the CALLER (never a shared/global account).
+ *
+ * Both headers are kept when both are sent: the React app pairs
+ * `Authorization: Bearer <main token>` with `X-API-Key: <switched-account token>`
+ * when the user switched accounts. We forward the pair to Magileads so the
+ * assistant always acts on the SAME account as the rest of the app.
+ */
 function readAuth(req) {
   const authz = req.headers["authorization"];
   const apiKey = req.headers["x-api-key"];
+  const auth = {};
   if (typeof authz === "string" && /^Bearer\s+/i.test(authz)) {
-    return { accessToken: authz.replace(/^Bearer\s+/i, "").trim() };
+    auth.accessToken = authz.replace(/^Bearer\s+/i, "").trim();
   }
-  if (typeof apiKey === "string" && apiKey.trim()) return { apiKey: apiKey.trim() };
-  return null;
+  if (typeof apiKey === "string" && apiKey.trim()) auth.apiKey = apiKey.trim();
+  return auth.accessToken || auth.apiKey ? auth : null;
 }
 
 // Very small in-memory limiter (per user id). Enough to stop a runaway loop from
@@ -123,7 +166,9 @@ function rateLimited(key) {
 /* ------------------------------ the SSE chat ------------------------------ */
 
 async function handleChat(req, res, cors) {
-  if (!AI_API_KEY || !AI_MODEL) {
+  // Seule la clé du fournisseur est indispensable : le palier "free" a des
+  // modèles par défaut et "custom" reçoit le modèle du client.
+  if (!AI_API_KEY) {
     return json(res, 503, { ok: false, errorKey: "ai_not_configured" }, cors);
   }
 
@@ -165,9 +210,20 @@ async function handleChat(req, res, cors) {
     .map((m) => ({ role: m.role, content: m.content.slice(0, MAX_CONTENT) }));
   if (!clientMessages.length) return json(res, 400, { ok: false, errorKey: "empty" }, cors);
 
-  // The user-facing tier ("simple" | "complex") maps to a real model HERE, so the
-  // model name is never exposed to the client.
-  const model = body.tier === "complex" ? AI_MODEL_COMPLEX || AI_MODEL : AI_MODEL;
+  // The user-facing tier maps to real model(s) HERE.
+  const tier = ["free", "simple", "complex", "custom"].includes(body.tier) ? body.tier : "simple";
+  const candidates = resolveModels(tier, body.model);
+  if (!candidates.length) {
+    return json(
+      res,
+      tier === "custom" ? 400 : 503,
+      {
+        ok: false,
+        errorKey: tier === "custom" ? "invalid_custom_model" : "ai_not_configured",
+      },
+      cors,
+    );
+  }
 
   const convo = [{ role: "system", content: buildSystemPrompt(profile) }, ...clientMessages];
 
@@ -190,10 +246,18 @@ async function handleChat(req, res, cors) {
     ac.abort();
   });
 
-  try {
-    for (let round = 0; round < MAX_ROUNDS && !closed; round++) {
-      let upstream;
+  // Index du modèle candidat en cours : on n'avance QUE sur un échec récupérable,
+  // et le modèle retenu est conservé pour les tours suivants de la conversation.
+  let modelIdx = 0;
+  let announced = false;
+  let produced = false; // texte OU appel d'outil -> sert a detecter un modele muet
+
+  /** Ouvre le flux upstream, en basculant sur le candidat suivant si besoin. */
+  async function openUpstream() {
+    while (modelIdx < candidates.length) {
+      const model = candidates[modelIdx];
       const timeout = setTimeout(() => ac.abort(), CALL_TIMEOUT_MS);
+      let upstream;
       try {
         upstream = await fetch(`${AI_API_URL}/chat/completions`, {
           method: "POST",
@@ -209,16 +273,44 @@ async function handleChat(req, res, cors) {
         });
       } catch {
         clearTimeout(timeout);
-        if (!closed) sendText("\n\n_(Le service IA est injoignable pour le moment.)_");
-        break;
+        return { error: "unreachable" };
       }
       clearTimeout(timeout);
 
-      if (!upstream.ok || !upstream.body) {
-        const detail = await upstream.text().catch(() => "");
-        console.error(`[ai] upstream ${upstream.status}: ${detail.slice(0, 400)}`);
-        sendText("\n\n_(Erreur du service IA.)_");
+      if (upstream.ok && upstream.body) return { upstream, model };
+
+      const detail = await upstream.text().catch(() => "");
+      console.error(`[ai] upstream ${upstream.status} (${model}): ${detail.slice(0, 300)}`);
+      // Modèle disparu / saturé / payant : on tente le candidat suivant s'il y en a.
+      if (RETRIABLE_UPSTREAM.includes(upstream.status) && modelIdx + 1 < candidates.length) {
+        modelIdx++;
+        continue;
+      }
+      return { error: "upstream", status: upstream.status };
+    }
+    return { error: "no_model" };
+  }
+
+  try {
+    for (let round = 0; round < MAX_ROUNDS && !closed; round++) {
+      const opened = await openUpstream();
+      if (opened.error) {
+        if (!closed) {
+          sendText(
+            opened.error === "unreachable"
+              ? "\n\n_(Le service IA est injoignable pour le moment.)_"
+              : "\n\n_(Erreur du service IA — modèle indisponible ou saturé.)_",
+          );
+        }
         break;
+      }
+      const { upstream, model } = opened;
+
+      // On annonce le modèle réellement utilisé (utile pour les paliers "free"
+      // — où l'on peut avoir basculé — et "custom").
+      if (!announced) {
+        announced = true;
+        sendEvent("model.info", { tier, model, fallback: modelIdx > 0 });
       }
 
       // Parse the provider's SSE: forward text deltas, accumulate tool calls.
@@ -249,6 +341,7 @@ async function handleChat(req, res, cors) {
           if (!delta) continue;
           if (typeof delta.content === "string" && delta.content) {
             assistantContent += delta.content;
+            produced = true;
             sendText(delta.content);
           }
           for (const tc of delta.tool_calls ?? []) {
@@ -264,6 +357,7 @@ async function handleChat(req, res, cors) {
 
       const calls = toolCalls.filter((c) => c && c.name);
       if (!calls.length) break; // the model produced its final answer
+      produced = true;
 
       convo.push({
         role: "assistant",
@@ -307,6 +401,13 @@ async function handleChat(req, res, cors) {
         convo.push({ role: "tool", tool_call_id: c.id, content: result });
       }
     }
+    // Certains modèles (préversions "stealth"…) répondent 200 sans rien émettre :
+    // on le dit au lieu de fermer un flux vide.
+    if (!closed && !produced) {
+      sendText(
+        "_(Ce modèle n'a renvoyé aucune réponse. Essaie un autre modèle — certains modèles en préversion ne répondent pas.)_",
+      );
+    }
     if (!closed) res.write("data: [DONE]\n\n");
   } catch (err) {
     console.error("[ai] stream error:", err?.message || err);
@@ -330,11 +431,28 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
 
   if (req.method === "GET" && url.pathname === "/health") {
-    return json(res, 200, { ok: true, configured: Boolean(AI_API_KEY && AI_MODEL) }, cors);
+    return json(res, 200, { ok: true, configured: Boolean(AI_API_KEY) }, cors);
   }
 
   if (req.method === "GET" && url.pathname === "/ai/meta") {
-    return json(res, 200, { ok: true, toolLabels: TOOL_LABELS, createsList: CREATES_LIST }, cors);
+    return json(
+      res,
+      200,
+      {
+        ok: true,
+        toolLabels: TOOL_LABELS,
+        createsList: CREATES_LIST,
+        // Paliers réellement disponibles (l'UI peut s'y adapter).
+        tiers: {
+          free: resolveModels("free").length > 0,
+          simple: resolveModels("simple").length > 0,
+          complex: resolveModels("complex").length > 0,
+          custom: ALLOW_CUSTOM_MODEL,
+        },
+        freeCandidates: resolveModels("free").length,
+      },
+      cors,
+    );
   }
 
   if (req.method === "POST" && url.pathname === "/ai/chat") {
@@ -346,6 +464,7 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, () => {
   console.log(`[ai-server] listening on http://localhost:${PORT}`);
-  console.log(`[ai-server] model(simple)=${AI_MODEL || "(unset)"} model(complex)=${AI_MODEL_COMPLEX || "(= simple)"}`);
-  if (!AI_API_KEY || !AI_MODEL) console.warn("[ai-server] WARNING: AI_API_KEY / AI_MODEL not set → /ai/chat returns 503");
+  console.log(`[ai-server] tiers -> free=${resolveModels("free").length} candidat(s) | simple=${AI_MODEL || "(unset)"} | complex=${AI_MODEL_COMPLEX || "(= simple)"} | custom=${ALLOW_CUSTOM_MODEL ? "autorise" : "desactive"}`);
+  if (!AI_API_KEY) console.warn("[ai-server] WARNING: AI_API_KEY non defini -> /ai/chat renvoie 503");
+  if (!AI_MODEL) console.warn("[ai-server] NOTE: AI_MODEL non defini -> les paliers simple/complex sont indisponibles");
 });

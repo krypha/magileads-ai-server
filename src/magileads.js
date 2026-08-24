@@ -9,11 +9,20 @@
 
 export const API_BASE = (process.env.MAGILEADS_API_BASE || "https://app.api-magileads.net").replace(/\/+$/, "");
 
-/** Build the auth headers for one user. */
+/**
+ * Auth headers for one caller.
+ *
+ * We forward BOTH headers when the caller sent both, exactly as the front-end
+ * does. That matters for account switching: the React app keeps
+ * `Authorization: Bearer <main token>` and adds `X-API-Key: <switched token>`.
+ * By passing both through, Magileads applies its own precedence and we act on
+ * the same account the rest of the app does — instead of guessing here.
+ */
 function authHeaders(auth) {
-  if (auth?.accessToken) return { Authorization: `Bearer ${auth.accessToken}` };
-  if (auth?.apiKey) return { "X-API-Key": auth.apiKey };
-  return {};
+  const h = {};
+  if (auth?.accessToken) h.Authorization = `Bearer ${auth.accessToken}`;
+  if (auth?.apiKey) h["X-API-Key"] = auth.apiKey;
+  return h;
 }
 
 /**

@@ -5,7 +5,8 @@
  *   • streaming du texte + indicateur d'outil en cours ("Lecture des campagnes…")
  *   • rendu Markdown riche (titres, TABLEAUX d'audit, listes, code, liens)
  *   • bouton Copier sur chaque message + Exporter (rapport HTML/PDF) sur les audits
- *   • sélecteur de modèle Simple / Complexe (le nom du modèle reste côté serveur)
+ *   • sélecteur de modèle : Gratuit / Simple / Complexe / Personnalisé
+ *   • respecte le COMPTE SWITCHÉ (user_switch) comme le reste de l'app
  *   • carte cliquable de choix du compte LinkedIn (données réelles du serveur)
  *   • garde-fou rouge avant toute suppression de contacts
  *   • notification quand un ciblage est terminé (+ lien vers la liste créée)
@@ -23,7 +24,14 @@
  *   const profile = useProfileStore((s) => s.profile);
  *   <AiAssistant
  *     serverUrl={window._env_.AI_SERVER_URL}
- *     getAccessToken={() => useSessionStore.getState().session?.access_token}
+ *     // Compte principal + compte SWITCHÉ (comme l'interceptor axios) :
+ *     getAuthHeaders={() => {
+ *       const s = useSessionStore.getState();
+ *       return {
+ *         ...(s.session?.access_token ? { Authorization: `Bearer ${s.session.access_token}` } : {}),
+ *         ...(s.user_switch?.token ? { "X-API-Key": s.user_switch.token } : {}),
+ *       };
+ *     }}
  *     onAuthError={async () => { try { await mainAxios.get("/users/me"); } catch {} }}
  *     apiClient={mainAxios}                        // active le suivi de fin de ciblage
  *     userKey={profile?.email}                     // persistance par utilisateur
@@ -48,6 +56,7 @@ import {
   Stack,
   Text,
   Textarea,
+  TextInput,
   ThemeIcon,
   Tooltip,
   UnstyledButton,
@@ -118,19 +127,50 @@ function createSseParser() {
   };
 }
 
-function defaultGetAccessToken() {
+/**
+ * En-têtes d'authentification, alignés sur l'interceptor axios de l'app :
+ *   Authorization: Bearer <token du compte principal>
+ *   X-API-Key:     <token du compte SWITCHÉ>   (quand un switch est actif)
+ * On envoie les deux : Magileads applique sa précédence, donc l'assistant agit
+ * sur le MÊME compte que le reste de l'application.
+ *
+ * En production, préfère passer la prop `getAuthHeaders` qui lit le store en direct :
+ *   getAuthHeaders={() => {
+ *     const s = useSessionStore.getState();
+ *     return {
+ *       ...(s.session?.access_token ? { Authorization: `Bearer ${s.session.access_token}` } : {}),
+ *       ...(s.user_switch?.token ? { "X-API-Key": s.user_switch.token } : {}),
+ *     };
+ *   }}
+ */
+function defaultGetAuthHeaders() {
   try {
-    return JSON.parse(localStorage.getItem("session"))?.state?.session?.access_token || null;
+    const st = JSON.parse(localStorage.getItem("session"))?.state ?? {};
+    const h = {};
+    if (st.session?.access_token) h.Authorization = `Bearer ${st.session.access_token}`;
+    if (st.user_switch?.token) h["X-API-Key"] = st.user_switch.token;
+    return h;
   } catch {
-    return null;
+    return {};
   }
 }
+
+/** Paliers proposés. Le nom réel du modèle reste côté serveur (sauf "custom"). */
+const TIERS = [
+  { label: "Gratuit", value: "free" },
+  { label: "Simple", value: "simple" },
+  { label: "Complexe", value: "complex" },
+  { label: "Perso.", value: "custom" },
+];
 
 /* -------------------------------- composant ------------------------------- */
 
 export default function AiAssistant({
   serverUrl = "https://magileads-ai-server.krypha.com",
-  getAccessToken = defaultGetAccessToken,
+  /** Retourne les en-têtes d'auth (compte principal + compte switché). */
+  getAuthHeaders = defaultGetAuthHeaders,
+  /** Compat : si fourni, on construit l'en-tête Bearer à partir de ce token. */
+  getAccessToken,
   onAuthError,
   apiClient, // optionnel (ex. mainAxios) : active le suivi de fin de ciblage
   userKey, // optionnel : clé de persistance (email/id de l'utilisateur)
@@ -157,6 +197,13 @@ export default function AiAssistant({
     if (typeof window === "undefined") return "complex";
     return localStorage.getItem("groleads:ai:tier") || "complex";
   });
+  // Palier "Perso." : l'id du modèle est saisi par l'utilisateur (ex. stealth/ox-alpha).
+  const [customModel, setCustomModel] = useState(() => {
+    if (typeof window === "undefined") return "";
+    return localStorage.getItem("groleads:ai:customModel") || "";
+  });
+  // Modèle réellement utilisé, annoncé par le serveur (affiché pour free/custom).
+  const [modelInfo, setModelInfo] = useState(null);
   const [error, setError] = useState(null);
   const [picked, setPicked] = useState({}); // msgId -> nom du compte choisi
   const [resolved, setResolved] = useState({}); // msgId -> "confirmed" | "cancelled"
@@ -189,10 +236,11 @@ export default function AiAssistant({
   useEffect(() => {
     try {
       localStorage.setItem("groleads:ai:tier", tier);
+      localStorage.setItem("groleads:ai:customModel", customModel);
     } catch {
       /* ignore */
     }
-  }, [tier]);
+  }, [tier, customModel]);
 
   // Auto-scroll en bas.
   useEffect(() => {
@@ -280,8 +328,13 @@ export default function AiAssistant({
     async (override) => {
       const text = (override ?? input).trim();
       if (!text || streaming) return;
+      if (tier === "custom" && !customModel.trim()) {
+        setError("Renseigne l'identifiant du modèle (ex. stealth/ox-alpha).");
+        return;
+      }
       if (!override) setInput("");
       setError(null);
+      setModelInfo(null);
 
       const userMsg = { id: uid(), role: "user", content: text };
       const aId = uid();
@@ -301,7 +354,13 @@ export default function AiAssistant({
         // 2 tentatives : la 1re peut échouer en 401 si l'access_token a expiré
         // (durée de vie ~30 min) -> le front rafraîchit, puis on rejoue.
         for (let attempt = 0; attempt < 2; attempt++) {
-          const token = getAccessToken?.(); // relu à chaque tentative
+          // Relu à CHAQUE tentative : token frais + compte switché à jour.
+          const authHeaders = getAccessToken
+            ? (() => {
+                const t = getAccessToken();
+                return t ? { Authorization: `Bearer ${t}` } : {};
+              })()
+            : getAuthHeaders?.() ?? {};
           const ctrl = new AbortController();
           abortRef.current = ctrl;
 
@@ -309,11 +368,13 @@ export default function AiAssistant({
           try {
             res = await fetch(`${serverUrl}/ai/chat`, {
               method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                ...(token ? { Authorization: `Bearer ${token}` } : {}),
-              },
-              body: JSON.stringify({ messages: history, tier }),
+              headers: { "Content-Type": "application/json", ...authHeaders },
+              body: JSON.stringify({
+                messages: history,
+                tier,
+                // Seul le palier "Perso." pilote le modèle depuis le client.
+                ...(tier === "custom" ? { model: customModel.trim() } : {}),
+              }),
               signal: ctrl.signal,
             });
           } catch (e) {
@@ -364,6 +425,14 @@ export default function AiAssistant({
                 }
                 continue;
               }
+              if (ev.event === "model.info") {
+                try {
+                  setModelInfo(JSON.parse(ev.data));
+                } catch {
+                  /* ignore */
+                }
+                continue;
+              }
               if (ev.event === "linkedin.accounts") {
                 // Carte alimentée par le SERVEUR (comptes réels) -> pas d'hallucination.
                 try {
@@ -404,7 +473,9 @@ export default function AiAssistant({
       messages,
       streaming,
       tier,
+      customModel,
       serverUrl,
+      getAuthHeaders,
       getAccessToken,
       onAuthError,
       patch,
@@ -462,15 +533,37 @@ export default function AiAssistant({
         </Group>
 
         <Group gap="xs" wrap="nowrap">
-          <SegmentedControl
-            size="xs"
-            value={tier}
-            onChange={setTier}
-            data={[
-              { label: "Simple", value: "simple" },
-              { label: "Complexe", value: "complex" },
-            ]}
-          />
+          {/* Le nom réel du modèle reste côté serveur pour Gratuit/Simple/Complexe. */}
+          <SegmentedControl size="xs" value={tier} onChange={setTier} data={TIERS} />
+
+          {tier === "custom" && (
+            <TextInput
+              size="xs"
+              w={200}
+              placeholder="editeur/modele"
+              value={customModel}
+              onChange={(e) => setCustomModel(e.currentTarget.value)}
+              error={Boolean(customModel) && !/^[a-z0-9][\w.-]*\/[\w.:-]+$/i.test(customModel.trim())}
+              aria-label="Identifiant du modèle"
+            />
+          )}
+
+          {/* Modèle réellement utilisé : utile quand le palier Gratuit a basculé. */}
+          {modelInfo && (tier === "free" || tier === "custom") && (
+            <Tooltip
+              label={
+                modelInfo.fallback
+                  ? "Modèle de repli (le précédent était saturé ou indisponible)"
+                  : "Modèle utilisé"
+              }
+              withArrow
+            >
+              <Badge size="xs" variant="light" color={modelInfo.fallback ? "orange" : "gray"}>
+                {modelInfo.model}
+              </Badge>
+            </Tooltip>
+          )}
+
           <Button
             size="xs"
             variant="subtle"
@@ -589,7 +682,7 @@ export default function AiAssistant({
             <ActionIcon
               size="lg"
               onClick={() => send()}
-              disabled={!input.trim()}
+              disabled={!input.trim() || (tier === "custom" && !customModel.trim())}
               aria-label="Envoyer"
             >
               <IconSend size={16} />
