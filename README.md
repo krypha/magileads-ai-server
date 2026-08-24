@@ -134,27 +134,64 @@ Deux conventions que le front doit gérer (le composant d'exemple le fait) :
 
 ## 5. Intégration dans ton front React
 
+Deux exemples fournis :
+
+| Fichier | Pour qui |
+| ------- | -------- |
+| **`examples/mantine/`** ⭐ | **Recommandé** — reprise complète de l'assistant `/ai` de Groleads en **Mantine** |
+| `examples/AiAssistant.jsx` | Version sans aucune dépendance (styles inline), utile comme référence |
+
+### Version Mantine (recommandée)
+
+Copie le dossier `examples/mantine/` dans ton projet (3 fichiers :
+`AiAssistant.jsx`, `MarkdownMessage.jsx`, `exportReport.js`).
+
+```bash
+npm i react-markdown remark-gfm      # @mantine/core, @mantine/notifications
+                                     # et @tabler/icons-react : déjà chez toi
+```
+
 ```jsx
-import AiAssistant from "./AiAssistant";              // examples/AiAssistant.jsx
-import { useSessionStore } from "./stores/UserStore";
-import { mainAxios } from "./api/axios";
+import AiAssistant from "./ai/AiAssistant";
+import { mainAxios } from "../api/axios";
+import { useSessionStore, useProfileStore } from "../stores/UserStore";
+import { useNavigate } from "react-router-dom";
 
 export default function AiPage() {
+  const navigate = useNavigate();
+  const profile = useProfileStore((s) => s.profile);
+
   return (
     <AiAssistant
-      serverUrl={import.meta.env.VITE_AI_SERVER_URL || "http://localhost:8787"}
-      // Le vrai token de l'utilisateur connecté :
+      serverUrl={window._env_.AI_SERVER_URL}
+      // Le token est relu À CHAQUE envoi (jamais figé) :
       getAccessToken={() => useSessionStore.getState().session?.access_token}
-      // Sur 401 : on force ton interceptor à rafraîchir, puis le composant retente.
+      // Sur 401 : on déclenche ton interceptor (refresh + Web Lock), puis rejeu auto.
       onAuthError={async () => {
-        try {
-          await mainAxios.get("/users/me");           // déclenche le refresh + Web Lock
-        } catch { /* l'interceptor gère la déconnexion */ }
+        try { await mainAxios.get("/users/me"); } catch { /* l'interceptor gère */ }
       }}
+      apiClient={mainAxios}                 // optionnel : notifie la fin des ciblages
+      userKey={profile?.email}              // optionnel : conversation persistée par user
+      onOpenList={(id) => navigate(`/contact-lists/${id}`)}
+      height="calc(100vh - 140px)"
     />
   );
 }
 ```
+
+**Ce que tu retrouves (parité avec `/ai`)** : streaming + indicateur d'outil,
+**rendu Markdown** (titres, **tableaux d'audit** défilables, listes, code, liens),
+**Copier** sur chaque message, **Exporter** un rapport en HTML/PDF imprimable,
+sélecteur **Simple/Complexe**, **carte cliquable des comptes LinkedIn**,
+**garde-fou rouge** avant suppression, notification de **fin de ciblage** avec lien
+vers la liste, conversation **persistée**, bouton **Stop**, rejeu auto après 401.
+
+**Prérequis** : Mantine **v7+** (le mapping des tableaux utilise `Table.Thead`).
+Sous Mantine v6, remplace ces mappings par `thead/tbody/tr/th/td` dans
+`MarkdownMessage.jsx`. Testé avec `react-markdown` v9/v10.
+
+> ⚠️ N'ajoute **jamais** `rehype-raw` dans `MarkdownMessage.jsx` : le contenu vient
+> d'un LLM et il est réutilisé tel quel dans l'export → ce serait une faille XSS.
 
 Pense à ajouter l'origine de ton front dans `ALLOWED_ORIGINS`.
 
