@@ -1,47 +1,48 @@
 # Magileads AI Server
 
 Serveur **autonome** de l'assistant IA Magileads : même comportement que la route
-`/api/ai/chat` de l'app Next.js, mais utilisable depuis **n'importe quel front**
-(ton React JS, une autre app, un mobile…).
+`/api/ai/chat` de l'application Next.js, mais utilisable depuis **n'importe quel
+front** (ReactJS, autre application web, mobile…).
 
-- **Zéro dépendance** — tourne avec **Bun** ou **Node 18+** (`node:http` + `fetch`).
+- **Zéro dépendance** — fonctionne avec **Bun** ou **Node 18+** (`node:http` + `fetch`).
 - **Tout en JS** (ESM), pas de TypeScript.
-- **Streaming SSE** : le texte arrive au fil de l'eau, comme ChatGPT.
-- **Tool-calling** : 18 outils qui interrogent/agissent sur le compte Magileads
-  **de l'utilisateur appelant**.
+- **Streaming SSE** : la réponse arrive au fil de l'eau.
+- **Tool-calling** : 18 outils qui interrogent le compte Magileads **de
+  l'utilisateur appelant**.
 
 ---
 
-## 1. Le principe (important)
+## 1. Principe
 
 Le modèle **n'a aucune mémoire** : à chaque message, le serveur réassemble
 `prompt système + historique + outils` et l'envoie au fournisseur (OpenRouter).
 
 ```
-Front React ──(Bearer token Magileads)──► ai-server ──► modèle (OpenRouter)
-                                             │              │
-                                             │   « appelle list_campaigns »
-                                             ▼
-                                    Magileads API (avec le token DE L'UTILISATEUR)
-                                             │
-                                             └──► résultat ──► modèle ──► réponse (SSE)
+Front ──(token Magileads)──► ai-server ──► modèle (OpenRouter)
+                                 │              │
+                                 │   « appeler list_campaigns »
+                                 ▼
+                        API Magileads (avec le token DE L'UTILISATEUR)
+                                 │
+                                 └──► résultat ──► modèle ──► réponse (SSE)
 ```
 
 **Sécurité** : le token de l'utilisateur sert **uniquement** à exécuter les outils
-côté serveur. Il **n'entre jamais** dans le contexte du modèle — le modèle ne voit
-que les *résultats*. Chaque utilisateur ne voit donc que **ses** données.
+côté serveur. Il **n'entre jamais** dans le contexte du modèle, qui ne reçoit que
+les *résultats*. Chaque utilisateur n'accède donc qu'à **ses** données.
 
-**Le serveur ne rafraîchit pas les tokens** : ton front le fait déjà (interceptor
-axios + Web Locks). Si le token est expiré, le serveur répond `401` avec
-`{ state_message: "token_expired" }` → ton front rafraîchit et retente.
+**Le serveur ne rafraîchit pas les tokens** : le front s'en charge déjà
+(interceptor axios + Web Locks). Lorsqu'un token est expiré, le serveur répond
+`401` avec `{ state_message: "token_expired" }`, à charge du client de rafraîchir
+et de rejouer la requête.
 
 ---
 
-## 2. Installation & lancement
+## 2. Installation et lancement
 
 ```bash
-cp .env.example .env     # puis renseigne AI_API_KEY / AI_MODEL
-bun install              # (rien à installer, mais crée le lockfile)
+cp .env.example .env     # renseigner AI_API_KEY et les modèles
+bun install              # aucune dépendance, crée simplement le lockfile
 bun run start            # → http://localhost:8787
 ```
 
@@ -53,18 +54,18 @@ npm run start:node       # node --env-file=.env src/server.js
 
 ### Variables d'environnement
 
-| Variable             | Rôle                                                           |
-| -------------------- | -------------------------------------------------------------- |
-| `PORT`               | Port d'écoute (défaut `8787`)                                    |
-| `ALLOWED_ORIGINS`    | Origines CORS autorisées, séparées par des virgules (`*` en dev) |
-| `RATE_LIMIT_PER_MIN` | Requêtes max par utilisateur et par minute (défaut 20)           |
-| `MAGILEADS_API_BASE` | `https://app.api-magileads.net`                                  |
-| `AI_API_URL`         | Fournisseur compatible OpenAI (défaut OpenRouter)                |
-| `AI_API_KEY`         | Clé du fournisseur (**serveur uniquement**)                      |
+| Variable             | Rôle                                                              |
+| -------------------- | ----------------------------------------------------------------- |
+| `PORT`               | Port d'écoute (défaut `8787`)                                       |
+| `ALLOWED_ORIGINS`    | Origines CORS autorisées, séparées par des virgules (`*` en dev)    |
+| `RATE_LIMIT_PER_MIN` | Requêtes max par utilisateur et par minute (défaut 20)              |
+| `MAGILEADS_API_BASE` | `https://app.api-magileads.net`                                     |
+| `AI_API_URL`         | Fournisseur compatible OpenAI (défaut OpenRouter)                   |
+| `AI_API_KEY`         | Clé du fournisseur (**serveur uniquement**)                         |
 | `AI_MODEL_FREE`      | Palier « Gratuit » — défaut `openrouter/free` (routeur géré par OpenRouter). Accepte aussi une liste séparée par des virgules, essayée dans l'ordre |
-| `AI_MODEL`           | Modèle du palier « Simple » (palier par défaut)                  |
-| `AI_MODEL_COMPLEX`   | Modèle du palier « Complexe » (si vide → = Simple)               |
-| `ALLOW_CUSTOM_MODEL` | `false` pour désactiver le palier « Perso. »                      |
+| `AI_MODEL`           | Modèle du palier « Simple » (palier par défaut)                     |
+| `AI_MODEL_COMPLEX`   | Modèle du palier « Complexe » (si vide → identique à Simple)        |
+| `ALLOW_CUSTOM_MODEL` | `false` pour désactiver le palier « Perso. »                         |
 
 > ⚠️ Le modèle doit supporter le **function calling**.
 
@@ -82,12 +83,12 @@ Authorization: Bearer <access_token Magileads du compte principal>
 X-API-Key:     <token du compte SWITCHÉ>        (optionnel)
 ```
 
-⚠️ **Compte switché** : envoie les **deux** en-têtes, exactement comme
-l'interceptor axios de l'app (`config.headers["X-API-Key"] = user_switch.token`).
-Le serveur les transmet **tels quels** à Magileads, et **Magileads privilégie
-`X-API-Key`** (vérifié : Bearer valide + `X-API-Key` invalide → `401`). L'assistant
-agit donc sur le **même compte** que le reste de l'application. Le composant
-Mantine le fait déjà via `getAuthHeaders`.
+⚠️ **Compte switché** : les **deux** en-têtes doivent être envoyés, comme le fait
+l'interceptor axios de l'application (`config.headers["X-API-Key"] =
+user_switch.token`). Le serveur les transmet **tels quels** à Magileads, qui
+**privilégie `X-API-Key`** (vérifié : Bearer valide + `X-API-Key` invalide →
+`401`). L'assistant opère ainsi sur le **même compte** que le reste de
+l'application. Le composant Mantine gère ce cas via `getAuthHeaders`.
 
 **Corps**
 
@@ -96,7 +97,7 @@ Mantine le fait déjà via `getAuthHeaders`.
   "tier": "simple",
   "messages": [
     { "role": "user", "content": "Combien de campagnes ai-je ?" },
-    { "role": "assistant", "content": "Tu as 2 campagnes." },
+    { "role": "assistant", "content": "Vous avez 2 campagnes." },
     { "role": "user", "content": "Et des listes ?" }
   ]
 }
@@ -104,74 +105,75 @@ Mantine le fait déjà via `getAuthHeaders`.
 
 - `tier` : `"free"` | `"simple"` | `"complex"` | `"custom"`. Le nom du modèle reste
   côté serveur, **sauf** pour `custom`.
-- `model` : **uniquement** avec `tier: "custom"` — l'id du modèle (ex.
+- `model` : **uniquement** avec `tier: "custom"` — identifiant du modèle (ex.
   `stealth/ox-alpha`). Format validé côté serveur (`editeur/modele`) ; sinon
   `400 invalid_custom_model`.
-- `messages` : tout l'historique (le modèle est sans mémoire). Seuls les rôles
-  `user`/`assistant` sont acceptés (un client ne peut pas injecter de `system`).
+- `messages` : l'historique complet (le modèle est sans mémoire). Seuls les rôles
+  `user` et `assistant` sont acceptés — un client ne peut pas injecter de `system`.
 
 **Paliers de modèle**
 
 | Palier | Modèle utilisé | Particularité |
 | ------ | -------------- | ------------- |
-| `free` | `AI_MODEL_FREE` (défaut `openrouter/free`) | OpenRouter choisit lui-même un modèle gratuit. Si l'on épingle une liste, **bascule automatique** sur le suivant en cas de 429/404/402 |
+| `free` | `AI_MODEL_FREE` (défaut `openrouter/free`) | OpenRouter sélectionne lui-même un modèle gratuit. Si une liste est épinglée, **bascule automatique** sur le suivant en cas de 429/404/402 |
 | `simple` | `AI_MODEL` | palier par défaut |
 | `complex` | `AI_MODEL_COMPLEX` | retombe sur `AI_MODEL` si non défini |
-| `custom` | fourni par le client | pour tester un modèle précis |
+| `custom` | fourni par le client | permet de tester un modèle précis |
 
 **Réponse : `text/event-stream`**
 
-| Événement                 | Charge utile                                                       | À quoi ça sert                       |
+| Événement                 | Charge utile                                                       | Usage                                |
 | ------------------------- | ------------------------------------------------------------------ | ------------------------------------ |
-| *(sans event)*            | `{"choices":[{"delta":{"content":"…"}}]}`                            | morceau de texte à concaténer        |
+| *(sans event)*            | `{"choices":[{"delta":{"content":"…"}}]}`                            | fragment de texte à concaténer       |
 | `event: tool.progress`    | `{tool,label,status:"running"\|"completed",creates_list}`            | indicateur « ⚙️ Lecture des listes… » |
 | `event: linkedin.accounts`| `{accounts:[{id,name,username}]}`                                    | carte cliquable de choix de compte   |
-| `event: model.info`       | `{tier, model, fallback}`                                            | modèle réellement utilisé (utile si le palier Gratuit a basculé) |
+| `event: model.info`       | `{tier, model, fallback}`                                            | modèle réellement utilisé (utile lorsqu'un repli a eu lieu sur le palier Gratuit) |
 | *(sans event)*            | `[DONE]`                                                             | fin du flux                          |
 
-**Codes d'erreur** : `401` (token absent/expiré → rafraîchis et retente),
-`429` (rate limit), `503` (`AI_API_KEY`/`AI_MODEL` non configurés), `400` (vide).
+**Codes d'erreur** : `401` (token absent ou expiré → rafraîchir puis rejouer),
+`429` (rate limit), `503` (`AI_API_KEY` non configurée), `400` (corps vide ou
+modèle personnalisé invalide).
 
 ### `GET /health` → `{ ok, configured }`
-### `GET /ai/meta` → `{ toolLabels, createsList }` (libellés FR pour l'indicateur)
+### `GET /ai/meta` → `{ toolLabels, createsList, tiers }` (libellés FR pour l'indicateur)
 
 ---
 
-## 4. Les marqueurs dans le texte
+## 4. Marqueurs dans le texte
 
-Deux conventions que le front doit gérer (le composant d'exemple le fait) :
+Deux conventions à gérer côté front (les composants d'exemple les implémentent) :
 
 1. **`[[CONFIRM_DELETE]]{...}[[/CONFIRM_DELETE]]`** — avant toute suppression,
    l'assistant émet ce marqueur avec le **nombre exact** de contacts. Le front
-   affiche une **carte rouge** de confirmation ; tant que l'utilisateur n'a pas
-   confirmé, rien n'est supprimé. *(Sécurité réelle : côté serveur, la suppression
-   recompte et refuse si le nombre a changé, et un filtre vide est interdit.)*
+   affiche une **carte de confirmation** ; sans validation explicite, rien n'est
+   supprimé. *(Sécurité réelle : côté serveur, la suppression recompte et refuse
+   si le nombre a changé, et un filtre vide est interdit.)*
 
-2. **Carte de comptes LinkedIn** — elle est construite **par le serveur** à partir
-   du vrai résultat d'outil (événement `linkedin.accounts`), **jamais** depuis le
-   texte du modèle. Si le modèle tape quand même `[[PICK_ACCOUNT]]`, le front doit
-   l'**ignorer/supprimer** (le composant d'exemple le fait) — c'est ce qui évite
-   qu'un petit modèle **invente** un compte inexistant.
+2. **Carte de comptes LinkedIn** — construite **par le serveur** à partir du vrai
+   résultat d'outil (événement `linkedin.accounts`), **jamais** depuis le texte du
+   modèle. Si le modèle émet malgré tout `[[PICK_ACCOUNT]]`, le front doit
+   l'**ignorer et le retirer** de l'affichage : c'est ce qui empêche un petit
+   modèle d'**inventer** un compte inexistant.
 
 ---
 
-## 5. Intégration dans ton front React
+## 5. Intégration avec ReactJS
 
-Deux exemples fournis :
+Deux exemples sont fournis :
 
-| Fichier | Pour qui |
-| ------- | -------- |
-| **`examples/mantine/`** ⭐ | **Recommandé** — reprise complète de l'assistant `/ai` de Magileads en **Mantine** |
+| Fichier | Usage |
+| ------- | ----- |
+| **`examples/mantine/`** ⭐ | **Recommandé** — reprise complète de l'assistant `/ai` en **Mantine** |
 | `examples/AiAssistant.jsx` | Version sans aucune dépendance (styles inline), utile comme référence |
 
 ### Version Mantine (recommandée)
 
-Copie le dossier `examples/mantine/` dans ton projet (3 fichiers :
+Copier le dossier `examples/mantine/` dans le projet (3 fichiers :
 `AiAssistant.jsx`, `MarkdownMessage.jsx`, `exportReport.js`).
 
 ```bash
 npm i react-markdown remark-gfm      # @mantine/core, @mantine/notifications
-                                     # et @tabler/icons-react : déjà chez toi
+                                     # et @tabler/icons-react sont supposés présents
 ```
 
 ```jsx
@@ -187,14 +189,22 @@ export default function AiPage() {
   return (
     <AiAssistant
       serverUrl={window._env_.AI_SERVER_URL}
-      // Le token est relu À CHAQUE envoi (jamais figé) :
-      getAccessToken={() => useSessionStore.getState().session?.access_token}
-      // Sur 401 : on déclenche ton interceptor (refresh + Web Lock), puis rejeu auto.
+      // En-têtes relus À CHAQUE envoi : compte principal + compte switché.
+      getAuthHeaders={() => {
+        const s = useSessionStore.getState();
+        return {
+          ...(s.session?.access_token
+            ? { Authorization: `Bearer ${s.session.access_token}` }
+            : {}),
+          ...(s.user_switch?.token ? { "X-API-Key": s.user_switch.token } : {}),
+        };
+      }}
+      // Sur 401 : déclenche l'interceptor (refresh + Web Lock), puis rejeu automatique.
       onAuthError={async () => {
-        try { await mainAxios.get("/users/me"); } catch { /* l'interceptor gère */ }
+        try { await mainAxios.get("/users/me"); } catch { /* géré par l'interceptor */ }
       }}
       apiClient={mainAxios}                 // optionnel : notifie la fin des ciblages
-      userKey={profile?.email}              // optionnel : conversation persistée par user
+      userKey={profile?.email}              // optionnel : conversation persistée par utilisateur
       onOpenList={(id) => navigate(`/contact-lists/${id}`)}
       height="calc(100vh - 140px)"
     />
@@ -202,25 +212,27 @@ export default function AiPage() {
 }
 ```
 
-**Ce que tu retrouves (parité avec `/ai`)** : streaming + indicateur d'outil,
-**rendu Markdown** (titres, **tableaux d'audit** défilables, listes, code, liens),
-**Copier** sur chaque message, **Exporter** un rapport en HTML/PDF imprimable,
-sélecteur **Simple/Complexe**, **carte cliquable des comptes LinkedIn**,
-**garde-fou rouge** avant suppression, notification de **fin de ciblage** avec lien
-vers la liste, conversation **persistée**, bouton **Stop**, rejeu auto après 401.
+**Fonctionnalités** : streaming et indicateur d'outil, **rendu Markdown** (titres,
+**tableaux d'audit** défilables, listes, code, liens), **Copier** sur chaque
+message, **Exporter** un rapport HTML/PDF imprimable, sélecteur de modèle
+**Gratuit / Simple / Complexe / Perso.**, **carte cliquable des comptes
+LinkedIn**, **garde-fou** avant suppression, notification de **fin de ciblage**
+avec lien vers la liste créée, conversation **persistée**, bouton **Stop** et
+rejeu automatique après un 401.
 
 **Prérequis** : Mantine **v7+** (le mapping des tableaux utilise `Table.Thead`).
-Sous Mantine v6, remplace ces mappings par `thead/tbody/tr/th/td` dans
-`MarkdownMessage.jsx`. Testé avec `react-markdown` v9/v10.
+Sous Mantine v6, remplacer ces mappings par `thead/tbody/tr/th/td` dans
+`MarkdownMessage.jsx`. Testé avec `react-markdown` v9 et v10.
 
-> ⚠️ N'ajoute **jamais** `rehype-raw` dans `MarkdownMessage.jsx` : le contenu vient
-> d'un LLM et il est réutilisé tel quel dans l'export → ce serait une faille XSS.
+> ⚠️ Ne **jamais** ajouter `rehype-raw` dans `MarkdownMessage.jsx` : le contenu
+> provient d'un LLM et il est réutilisé tel quel dans l'export du rapport — ce
+> serait une faille XSS.
 
-Pense à ajouter l'origine de ton front dans `ALLOWED_ORIGINS`.
+L'origine du front doit être déclarée dans `ALLOWED_ORIGINS`.
 
 ---
 
-## 6. Les outils disponibles (18)
+## 6. Outils disponibles (18)
 
 | Domaine        | Outils                                                                              |
 | -------------- | ----------------------------------------------------------------------------------- |
@@ -234,12 +246,16 @@ Pense à ajouter l'origine de ton front dans `ALLOWED_ORIGINS`.
 ⚠️ = action destructive, protégée par le garde-fou de confirmation.
 Le ciblage **consomme des crédits** et crée une liste (extraction asynchrone).
 
+`list_contact_lists` balaie **toutes** les listes du compte (endpoint non paginé) :
+les tris `contacts` / `emails` / `linkedin` et les totaux renvoyés sont donc
+exacts, y compris sur les comptes comportant plusieurs milliers de listes.
+
 ---
 
 ## 7. Déploiement (Docker / Dokploy)
 
-Image **sans dépendance npm**, basée sur `oven/bun:1-alpine`, **non-root**, ~132 MB,
-avec un `HEALTHCHECK` sur `/health`.
+Image **sans dépendance npm**, basée sur `oven/bun:1-alpine`, exécutée en
+**non-root**, ~132 Mo, avec un `HEALTHCHECK` sur `/health`.
 
 ```bash
 docker build -t magileads-ai-server .
@@ -252,13 +268,13 @@ docker compose up -d --build
 
 **Option A — Application (recommandé)**
 
-1. *Create Application* → source Git → sélectionne ce dossier (`ai-server`) comme
-   **Build Path / Docker Context** si le repo contient aussi l'app Next.
+1. *Create Application* → source Git, puis définir ce dossier (`ai-server`) comme
+   **Build Path / Docker Context** si le dépôt contient également l'application Next.
 2. **Build Type : Dockerfile**.
-3. **Environment** — colle :
+3. **Environment** — renseigner :
    ```
    PORT=8787
-   ALLOWED_ORIGINS=https://ton-front.exemple.com
+   ALLOWED_ORIGINS=https://front.exemple.com
    RATE_LIMIT_PER_MIN=20
    MAGILEADS_API_BASE=https://app.api-magileads.net
    AI_API_URL=https://openrouter.ai/api/v1
@@ -266,24 +282,26 @@ docker compose up -d --build
    AI_MODEL=<modèle simple>
    AI_MODEL_COMPLEX=<modèle complexe>
    ```
-4. **Domains** → ajoute ton domaine (ex. `ai.magileads.com`), **Container Port
+4. **Domains** → ajouter le domaine (ex. `ai.magileads.com`), **Container Port
    `8787`**, HTTPS activé.
-5. Deploy. Vérifie : `curl https://ai.magileads.com/health` → `{"ok":true,"configured":true}`.
+5. Déployer, puis vérifier : `curl https://ai.magileads.com/health` →
+   `{"ok":true,"configured":true}`.
 
-**Option B — Compose** : *Create Compose*, pointe sur `docker-compose.yml` et
-définis les variables dans l'onglet Environment (le mapping `ports` peut être
-retiré si tu passes par le proxy Dokploy).
+**Option B — Compose** : *Create Compose*, pointer sur `docker-compose.yml` et
+définir les variables dans l'onglet Environment. Le mapping `ports` peut être
+retiré lorsque le proxy Dokploy est utilisé.
 
 ### Points d'attention
 
-- **`ALLOWED_ORIGINS`** doit contenir l'origine EXACTE de ton front
-  (`https://…`, sans slash final), sinon le navigateur bloque en CORS.
-- **SSE derrière le proxy** : l'app envoie déjà `X-Accel-Buffering: no` et
-  `Cache-Control: no-transform`. Si le streaming arrive « d'un bloc », vérifie que
+- **`ALLOWED_ORIGINS`** doit contenir l'origine EXACTE du front (`https://…`, sans
+  slash final), faute de quoi le navigateur bloque la requête en CORS.
+- **SSE derrière un proxy** : le serveur envoie déjà `X-Accel-Buffering: no` et
+  `Cache-Control: no-transform`. Si la réponse arrive « d'un bloc », vérifier que
   le buffering est désactivé côté proxy.
-- **Timeout du proxy** : un audit peut durer > 60 s. Monte le timeout de réponse
-  (Traefik/nginx) à ~180 s pour ne pas couper le flux.
-- **Secrets** : `AI_API_KEY` reste côté serveur ; ne l'expose jamais au front.
+- **Timeout du proxy** : un audit peut dépasser 60 s. Porter le timeout de réponse
+  (Traefik/nginx) à ~180 s pour ne pas interrompre le flux.
+- **Secrets** : `AI_API_KEY` reste côté serveur et ne doit jamais être exposée au
+  front.
 
 ---
 
@@ -291,19 +309,19 @@ retiré si tu passes par le proxy Dokploy).
 
 ### `401 Unauthorized` sur `POST /ai/chat`
 
-Dans 99 % des cas : **l'access_token Magileads est expiré** (durée de vie
-**30 minutes**). Le serveur valide le token via `GET /users/me` et relaie tel quel
-le verdict de Magileads.
+Dans la grande majorité des cas, l'**access_token Magileads est expiré** (durée de
+vie **30 minutes**). Le serveur valide le token via `GET /users/me` et relaie tel
+quel le verdict de Magileads.
 
-Diagnostic en 10 secondes :
+Diagnostic :
 
 ```bash
-# 1) Le token est-il encore vivant ? (source de vérité)
+# 1) Le token est-il encore valide ? (source de vérité)
 curl -s https://app.api-magileads.net/users/me -H "Authorization: Bearer $TOKEN"
-#   -> {"state":false,"state_message":"token_expired"}  = token mort, pas un bug serveur
+#   -> {"state":false,"state_message":"token_expired"} = token expiré, pas un bug serveur
 
-# 2) Le serveur est-il debout ?
-curl -s https://<ton-domaine>/health          # -> {"ok":true,"configured":true}
+# 2) Le serveur répond-il ?
+curl -s https://<domaine>/health          # -> {"ok":true,"configured":true}
 ```
 
 Décoder l'expiration d'un token :
@@ -313,24 +331,25 @@ node -e "const p=JSON.parse(Buffer.from(process.argv[1].split('.')[1],'base64url
 console.log('expire:',new Date(p.exp*1000).toISOString(),'| maintenant:',new Date().toISOString())" "$TOKEN"
 ```
 
-**Corriger côté front** (à ne surtout pas rater) :
+**Côté front**
 
-- ❌ Ne **jamais coder en dur** un token pour tester : il meurt en 30 min.
-- ✅ Lire le token **au moment de l'envoi** :
-  `getAccessToken={() => useSessionStore.getState().session?.access_token}`
-- ✅ Brancher `onAuthError` (cf. §5) : sur 401 le composant appelle ton refresh
-  puis **retente automatiquement une fois** avec le token frais.
+- ❌ Ne **jamais coder en dur** un token pour un test : il expire en 30 minutes.
+- ✅ Lire les en-têtes **au moment de l'envoi** (cf. `getAuthHeaders`, §5).
+- ✅ Brancher `onAuthError` : sur un 401, le composant déclenche le refresh puis
+  **rejoue automatiquement** la requête une fois, avec le token frais.
 
 Autres codes : `403` = origine absente de `ALLOWED_ORIGINS` · `429` = rate limit ·
-`503` = `AI_API_KEY`/`AI_MODEL` manquants côté serveur.
+`503` = `AI_API_KEY` manquante côté serveur.
 
 ---
 
 ## 9. Notes d'exploitation
 
-- **Modèle** : un modèle gratuit peut tomber en `429` ou disparaître
-  (« No endpoints found ») — pour la prod, prends un modèle payant / ta clé BYOK.
-- **Coût** : le rate-limit par utilisateur est en mémoire ; avec plusieurs
-  instances, passe sur un store partagé (Redis).
-- **Scalabilité** : le serveur est quasi sans état (l'historique vit dans le front)
-  → il se réplique derrière un load-balancer sans difficulté.
+- **Modèle** : un modèle gratuit peut renvoyer `429` ou disparaître du catalogue
+  (« No endpoints found »). En production, privilégier un modèle payant ou une clé
+  BYOK. Le palier « Gratuit » bascule automatiquement sur le candidat suivant
+  lorsqu'une liste est configurée.
+- **Coût** : le rate-limit par utilisateur est stocké en mémoire ; avec plusieurs
+  instances, le déporter vers un store partagé (Redis).
+- **Scalabilité** : le serveur est quasi sans état (l'historique vit côté front),
+  il se réplique donc derrière un load-balancer sans difficulté.

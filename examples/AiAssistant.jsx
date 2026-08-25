@@ -1,7 +1,7 @@
 /**
  * AiAssistant — composant React de test pour le serveur IA Magileads.
  *
- * Zéro dépendance (JSX + styles inline) → se colle dans n'importe quel front.
+ * Zéro dépendance (JSX + styles inline) → intégrable dans n'importe quel front.
  *
  * ⚠️ Version de RÉFÉRENCE (minimale). Pour la version complète — paliers de modèle
  * Gratuit/Simple/Complexe/Perso., rendu Markdown, export de rapport, compte switché
@@ -12,12 +12,12 @@
  *
  * AUTH : le composant envoie le token Magileads de l'utilisateur connecté dans
  * l'en-tête Authorization. Par défaut il le lit dans le localStorage ("session",
- * le store zustand persisté). Dans ton app, passe plutôt :
+ * le store zustand persisté). En intégration, préférer :
  *
  *   getAccessToken={() => useSessionStore.getState().session?.access_token}
  *
- * Sur 401, on appelle onAuthError() (branche-y ton refresh axios) puis on retente
- * une fois — le serveur ne rafraîchit PAS les tokens, c'est le front qui gère.
+ * Sur 401, onAuthError() est appelé (y brancher le refresh axios) puis la requête
+ * est rejouée une fois — le serveur ne rafraîchit PAS les tokens, c'est le front qui gère.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";

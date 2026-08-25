@@ -13,12 +13,12 @@ services:
     container_name: magileads-ai-server
     restart: unless-stopped
     ports:
-      # Derrière le reverse-proxy Dokploy (Traefik), tu peux retirer ce mapping
-      # et exposer le service via un domaine sur le port 8787.
+      # Derrière le reverse-proxy Dokploy (Traefik), ce mapping peut être retiré :
+      # le service est alors exposé via un domaine sur le port 8787.
       - "${PORT:-8787}:8787"
     environment:
       PORT: 8787
-      # Origines autorisées (CORS) : mets l'URL EXACTE de ton front React.
+      # Origines autorisées (CORS) : indiquer l'URL EXACTE du front.
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-*}
       RATE_LIMIT_PER_MIN: ${RATE_LIMIT_PER_MIN:-20}
       MAGILEADS_API_BASE: ${MAGILEADS_API_BASE:-https://app.api-magileads.net}
