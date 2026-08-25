@@ -155,6 +155,29 @@ function defaultGetAuthHeaders() {
   }
 }
 
+/**
+ * Lit une clé de persistance, en MIGRANT au passage depuis l'ancien préfixe
+ * `groleads:ai:*` (renommage Magileads). Sans ça, les utilisateurs déjà en place
+ * perdraient leur conversation et leur choix de palier au premier chargement.
+ * La migration est ponctuelle : l'ancienne clé est recopiée puis supprimée.
+ */
+function readStored(key) {
+  try {
+    const current = localStorage.getItem(key);
+    if (current !== null) return current;
+    const legacyKey = key.replace(/^magileads:/, "groleads:");
+    const legacy = localStorage.getItem(legacyKey);
+    if (legacy !== null) {
+      localStorage.setItem(key, legacy);
+      localStorage.removeItem(legacyKey);
+      return legacy;
+    }
+  } catch {
+    /* quota / indisponible */
+  }
+  return null;
+}
+
 /** Paliers proposés. Le nom réel du modèle reste côté serveur (sauf "custom"). */
 const TIERS = [
   { label: "Gratuit", value: "free" },
@@ -182,7 +205,7 @@ export default function AiAssistant({
   const [messages, setMessages] = useState(() => {
     if (typeof window === "undefined" || !userKey) return [];
     try {
-      const raw = localStorage.getItem(`magileads:ai:${userKey}`);
+      const raw = readStored(`magileads:ai:${userKey}`);
       const arr = raw ? JSON.parse(raw) : [];
       return Array.isArray(arr) ? arr : [];
     } catch {
@@ -195,12 +218,12 @@ export default function AiAssistant({
   // Gardé pour rester compatible SSR (Next.js) : pas d'accès localStorage au 1er rendu serveur.
   const [tier, setTier] = useState(() => {
     if (typeof window === "undefined") return "complex";
-    return localStorage.getItem("magileads:ai:tier") || "complex";
+    return readStored("magileads:ai:tier") || "complex";
   });
   // Palier "Perso." : l'id du modèle est saisi par l'utilisateur (ex. stealth/ox-alpha).
   const [customModel, setCustomModel] = useState(() => {
     if (typeof window === "undefined") return "";
-    return localStorage.getItem("magileads:ai:customModel") || "";
+    return readStored("magileads:ai:customModel") || "";
   });
   // Modèle réellement utilisé, annoncé par le serveur (affiché pour free/custom).
   const [modelInfo, setModelInfo] = useState(null);
