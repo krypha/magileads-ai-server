@@ -1,5 +1,5 @@
 /**
- * AiAssistant (Mantine) — reprise complète de l'assistant /ai de Groleads.
+ * AiAssistant (Mantine) — reprise complète de l'assistant /ai de Magileads.
  *
  * Fonctionnalités (parité avec l'app Next) :
  *   • streaming du texte + indicateur d'outil en cours ("Lecture des campagnes…")
@@ -177,12 +177,12 @@ export default function AiAssistant({
   onOpenList, // optionnel : (listId) => navigate(...)
   height = "calc(100vh - 140px)",
 }) {
-  const storeKey = userKey ? `groleads:ai:${userKey}` : null;
+  const storeKey = userKey ? `magileads:ai:${userKey}` : null;
 
   const [messages, setMessages] = useState(() => {
     if (typeof window === "undefined" || !userKey) return [];
     try {
-      const raw = localStorage.getItem(`groleads:ai:${userKey}`);
+      const raw = localStorage.getItem(`magileads:ai:${userKey}`);
       const arr = raw ? JSON.parse(raw) : [];
       return Array.isArray(arr) ? arr : [];
     } catch {
@@ -195,12 +195,12 @@ export default function AiAssistant({
   // Gardé pour rester compatible SSR (Next.js) : pas d'accès localStorage au 1er rendu serveur.
   const [tier, setTier] = useState(() => {
     if (typeof window === "undefined") return "complex";
-    return localStorage.getItem("groleads:ai:tier") || "complex";
+    return localStorage.getItem("magileads:ai:tier") || "complex";
   });
   // Palier "Perso." : l'id du modèle est saisi par l'utilisateur (ex. stealth/ox-alpha).
   const [customModel, setCustomModel] = useState(() => {
     if (typeof window === "undefined") return "";
-    return localStorage.getItem("groleads:ai:customModel") || "";
+    return localStorage.getItem("magileads:ai:customModel") || "";
   });
   // Modèle réellement utilisé, annoncé par le serveur (affiché pour free/custom).
   const [modelInfo, setModelInfo] = useState(null);
@@ -235,8 +235,8 @@ export default function AiAssistant({
 
   useEffect(() => {
     try {
-      localStorage.setItem("groleads:ai:tier", tier);
-      localStorage.setItem("groleads:ai:customModel", customModel);
+      localStorage.setItem("magileads:ai:tier", tier);
+      localStorage.setItem("magileads:ai:customModel", customModel);
     } catch {
       /* ignore */
     }

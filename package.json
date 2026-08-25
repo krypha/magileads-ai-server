@@ -1,9 +1,9 @@
 {
-  "name": "groleads-ai-server",
+  "name": "magileads-ai-server",
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Serveur autonome de l'assistant IA Groleads (streaming SSE + tool-calling), utilisable depuis n'importe quel front.",
+  "description": "Serveur autonome de l'assistant IA Magileads (streaming SSE + tool-calling), utilisable depuis n'importe quel front.",
   "main": "src/server.js",
   "scripts": {
     "start": "bun src/server.js",

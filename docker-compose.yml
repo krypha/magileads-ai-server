@@ -1,4 +1,4 @@
-# Groleads AI Server — déploiement Docker / Dokploy.
+# Magileads AI Server — déploiement Docker / Dokploy.
 #
 # Dokploy : soit "Application" (build du Dockerfile) et tu saisis les variables
 # dans l'UI, soit "Compose" avec ce fichier. Les valeurs viennent d'un .env à
@@ -9,8 +9,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: groleads-ai-server:latest
-    container_name: groleads-ai-server
+    image: magileads-ai-server:latest
+    container_name: magileads-ai-server
     restart: unless-stopped
     ports:
       # Derrière le reverse-proxy Dokploy (Traefik), tu peux retirer ce mapping

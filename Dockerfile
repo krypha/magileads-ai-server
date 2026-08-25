@@ -1,4 +1,4 @@
-# Groleads AI Server — image de production.
+# Magileads AI Server — image de production.
 # Le serveur n'a AUCUNE dépendance npm : on copie juste les sources.
 
 FROM oven/bun:1-alpine

@@ -1,6 +1,6 @@
-# Groleads AI Server
+# Magileads AI Server
 
-Serveur **autonome** de l'assistant IA Groleads : même comportement que la route
+Serveur **autonome** de l'assistant IA Magileads : même comportement que la route
 `/api/ai/chat` de l'app Next.js, mais utilisable depuis **n'importe quel front**
 (ton React JS, une autre app, un mobile…).
 
@@ -161,7 +161,7 @@ Deux exemples fournis :
 
 | Fichier | Pour qui |
 | ------- | -------- |
-| **`examples/mantine/`** ⭐ | **Recommandé** — reprise complète de l'assistant `/ai` de Groleads en **Mantine** |
+| **`examples/mantine/`** ⭐ | **Recommandé** — reprise complète de l'assistant `/ai` de Magileads en **Mantine** |
 | `examples/AiAssistant.jsx` | Version sans aucune dépendance (styles inline), utile comme référence |
 
 ### Version Mantine (recommandée)
@@ -242,8 +242,8 @@ Image **sans dépendance npm**, basée sur `oven/bun:1-alpine`, **non-root**, ~1
 avec un `HEALTHCHECK` sur `/health`.
 
 ```bash
-docker build -t groleads-ai-server .
-docker run -d --name groleads-ai -p 8787:8787 --env-file .env groleads-ai-server
+docker build -t magileads-ai-server .
+docker run -d --name magileads-ai -p 8787:8787 --env-file .env magileads-ai-server
 # ou
 docker compose up -d --build
 ```
@@ -266,9 +266,9 @@ docker compose up -d --build
    AI_MODEL=<modèle simple>
    AI_MODEL_COMPLEX=<modèle complexe>
    ```
-4. **Domains** → ajoute ton domaine (ex. `ai.groleads.com`), **Container Port
+4. **Domains** → ajoute ton domaine (ex. `ai.magileads.com`), **Container Port
    `8787`**, HTTPS activé.
-5. Deploy. Vérifie : `curl https://ai.groleads.com/health` → `{"ok":true,"configured":true}`.
+5. Deploy. Vérifie : `curl https://ai.magileads.com/health` → `{"ok":true,"configured":true}`.
 
 **Option B — Compose** : *Create Compose*, pointe sur `docker-compose.yml` et
 définis les variables dans l'onglet Environment (le mapping `ports` peut être
