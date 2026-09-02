@@ -132,9 +132,6 @@ export const searchContactListContacts = (auth, id, query, options) =>
     body: { query },
   });
 
-export const deleteContactsSelection = (auth, listId, selection) =>
-  request(`/contact-lists/${listId}/contacts`, { auth, method: "DELETE", body: selection });
-
 /* -------------------------- campaigns & statistics ------------------------- */
 
 export function listProgrammationsStats(auth, { page, query } = {}) {

@@ -20,7 +20,6 @@ import {
   getContactListProfile,
   listContactListContacts,
   searchContactListContacts,
-  deleteContactsSelection,
   listProgrammationsStats,
   getProgrammationStats,
   getWorkflow,
@@ -152,7 +151,7 @@ export const AI_TOOLS = [
     function: {
       name: "preview_contact_selection",
       description:
-        "Compte les contacts d'une liste correspondant à un filtre, AVANT toute suppression. Ne supprime rien. À appeler en premier pour connaître le nombre exact.",
+        "Compte les contacts d'une liste correspondant à un filtre, pour dimensionner un segment. Lecture seule : ne modifie rien.",
       parameters: {
         type: "object",
         properties: {
@@ -164,26 +163,6 @@ export const AI_TOOLS = [
           },
         },
         required: ["list_id", "filter"],
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "delete_contacts_by_selection",
-      description:
-        "Supprime DÉFINITIVEMENT les contacts d'une liste correspondant à un filtre. À n'appeler QU'APRÈS preview_contact_selection ET la confirmation explicite de l'utilisateur. confirm_count doit égaler le nombre renvoyé par l'aperçu (sinon la suppression est refusée).",
-      parameters: {
-        type: "object",
-        properties: {
-          list_id: { type: "number", description: "Id de la liste." },
-          filter: { type: "object", description: "Le MÊME filtre que l'aperçu." },
-          confirm_count: {
-            type: "number",
-            description: "Le nombre exact renvoyé par preview_contact_selection.",
-          },
-        },
-        required: ["list_id", "filter", "confirm_count"],
       },
     },
   },
@@ -307,8 +286,7 @@ export const TOOL_LABELS = {
   query_contacts: "Lecture des contacts",
   list_contact_fields: "Lecture des champs",
   list_linkedin_accounts: "Comptes LinkedIn",
-  preview_contact_selection: "Aperçu de la sélection",
-  delete_contacts_by_selection: "Suppression de contacts",
+  preview_contact_selection: "Comptage de la sélection",
   list_prm_statuses: "Statuts du pipeline",
   query_prm_contacts: "Lecture des prospects",
   get_prm_contact: "Fiche prospect",
@@ -667,32 +645,8 @@ export async function executeTool(name, argsRaw, auth) {
         return cap({
           list_id: id,
           count,
-          note: "Aucun contact supprimé. Émets le marqueur [[CONFIRM_DELETE]] puis ATTENDS l'accord de l'utilisateur avant de supprimer.",
+          note: "Lecture seule : aucune modification. Ce serveur n'expose aucun outil de suppression de contacts.",
         });
-      }
-
-      case "delete_contacts_by_selection": {
-        const id = Number(args.list_id);
-        if (!Number.isFinite(id)) return cap({ error: "list_id manquant" });
-        if (!nonEmptyFilter(args.filter)) return cap({ error: "filtre vide interdit" });
-        const confirm = Number(args.confirm_count);
-        if (!Number.isFinite(confirm)) return cap({ error: "confirm_count requis" });
-        // Real safety: re-count NOW and refuse if it differs from what was confirmed.
-        const pre = await listContactListContacts(auth, id, { per_page: 1, filter: args.filter });
-        const actual = Number(pre.data?.number_of_results ?? 0) || 0;
-        if (actual !== confirm) {
-          return cap({
-            error: `Abandon : le filtre correspond maintenant à ${actual} contacts, pas ${confirm}. Refais un aperçu et une confirmation.`,
-          });
-        }
-        const del = await deleteContactsSelection(auth, id, {
-          filter: args.filter,
-          contact_ids: [],
-          excluded_contact_ids: [],
-          reverse_selection: false,
-        });
-        if (!del.ok) return cap({ error: "suppression échouée" });
-        return cap({ status: "contacts supprimés", deleted: actual, list_id: id });
       }
 
       case "run_google_maps_targeting": {

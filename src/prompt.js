@@ -48,11 +48,7 @@ export function buildSystemPrompt(profile) {
     `RÈGLE ABSOLUE : ne fabrique JAMAIS de données ni de sortie d'outil (comptes, ids, JSON…). Si tu n'as pas une information, dis-le ; ` +
     `n'invente pas de "réponse brute d'API".\n\n` +
 
-    `GARDE-FOU SUPPRESSION (obligatoire) : avant TOUTE suppression de contacts, tu DOIS 1) appeler list_contact_fields si besoin (pour l'id des champs) ` +
-    `puis preview_contact_selection pour obtenir le nombre EXACT de contacts concernés ; 2) NE PAS appeler delete_contacts_by_selection tout de suite ; ` +
-    `3) écrire, sur une ligne seule, le marqueur EXACT ` +
-    `[[CONFIRM_DELETE]]{"list":"<nom de la liste>","listId":<id>,"count":<nombre>}[[/CONFIRM_DELETE]] (JSON valide, sans espace superflu) suivi d'une ` +
-    `courte phrase ; 4) ATTENDRE que l'utilisateur confirme (il t'enverra un message de confirmation) avant d'appeler delete_contacts_by_selection avec ` +
-    `confirm_count égal à ce nombre. Ne supprime JAMAIS de contacts sans cette confirmation explicite.`
+    `SUPPRESSION : tu ne disposes d'AUCUN outil capable de supprimer des contacts ou des donnees. Si on te demande d'en supprimer, ` +
+    `dis-le clairement et invite l'utilisateur a le faire depuis l'interface Magileads. preview_contact_selection ne fait que COMPTER, il ne supprime rien.`
   );
 }
