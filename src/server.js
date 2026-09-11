@@ -1,3 +1,4 @@
+import { cardsForTool, changesData } from './cards.js';
 /**
  * Magileads AI Assistant — standalone streaming server.
  *
@@ -241,7 +242,7 @@ async function handleChat(req, res, cors) {
 
   const ac = new AbortController();
   let closed = false;
-  req.on("close", () => {
+  res.on("close", () => {
     closed = true;
     ac.abort();
   });
@@ -398,6 +399,8 @@ async function handleChat(req, res, cors) {
             /* ignore */
           }
         }
+        if (changesData(c.name, result, c.args)) sendEvent("assistant.changed", {});
+        for (const card of cardsForTool(c.name, result, c.args)) sendEvent("assistant.card", card);
         convo.push({ role: "tool", tool_call_id: c.id, content: result });
       }
     }
@@ -410,7 +413,8 @@ async function handleChat(req, res, cors) {
     }
     if (!closed) res.write("data: [DONE]\n\n");
   } catch (err) {
-    console.error("[ai] stream error:", err?.message || err);
+    if (!closed) sendEvent("assistant.error", { code: "stream_failed" });
+    console.error("[ai] stream error:", err?.name || "Error");
   } finally {
     if (!closed) res.end();
   }

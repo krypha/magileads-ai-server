@@ -1,3 +1,5 @@
+import { sanitize, forbiddenOperation } from './assistant-policy.js';
+import { EXTENDED_TOOLS, executeExtended } from './operations.js';
 /**
  * AI tools (OpenAI-compatible function schemas) + their executor.
  *
@@ -31,6 +33,7 @@ import {
 } from "./magileads.js";
 
 export const AI_TOOLS = [
+  ...EXTENDED_TOOLS,
   {
     type: "function",
     function: {
@@ -277,6 +280,10 @@ export const AI_TOOLS = [
 
 /** French label for the streaming tool indicator (the front can reuse this map). */
 export const TOOL_LABELS = {
+  discover_operations: "Recherche des fonctions disponibles",
+  run_operation: "Exécution de l’action demandée",
+  connect_email: "Connexion email sécurisée",
+  list_dropcontact_connections: "Connexions Dropcontact",
   get_account_overview: "Lecture du compte",
   list_campaigns: "Lecture des campagnes",
   get_campaign_statistics: "Statistiques de campagne",
@@ -309,8 +316,8 @@ function statusOf(c) {
 }
 
 function pct(num, denom) {
-  if (!denom || denom <= 0) return null;
-  return Math.round(((num ?? 0) / denom) * 100);
+  if (num == null || !denom || denom <= 0) return null;
+  return Math.round((num / denom) * 1000) / 10;
 }
 
 /**
@@ -318,7 +325,7 @@ function pct(num, denom) {
  * MUST always return VALID JSON — slicing a JSON string mid-way corrupts it.
  */
 function cap(value, max = 8000) {
-  const s = JSON.stringify(value ?? null);
+  const s = JSON.stringify(sanitize(value ?? null));
   if (s.length <= max) return s;
   return JSON.stringify({
     _truncated: true,
@@ -358,6 +365,7 @@ function contactRows(env) {
  * @param {{accessToken?:string, apiKey?:string}} auth the CALLER's credentials
  */
 export async function executeTool(name, argsRaw, auth) {
+  if (forbiddenOperation(name) || !AI_TOOLS.some(tool => tool.function.name === name)) return cap({ error: "operation_not_allowed" });
   let args = {};
   try {
     args = argsRaw ? JSON.parse(argsRaw) : {};
@@ -366,6 +374,9 @@ export async function executeTool(name, argsRaw, auth) {
   }
 
   try {
+    if (!args || typeof args !== "object" || Array.isArray(args)) return cap({ error: "invalid_arguments" });
+    const extended = await executeExtended(name, args, auth);
+    if (extended !== null) return cap(extended, name === "discover_operations" ? 50000 : 12000);
     switch (name) {
       case "get_account_overview": {
         const r = await getMe(auth);
@@ -407,12 +418,12 @@ export async function executeTool(name, argsRaw, auth) {
             workflow_id: c.workflow_id,
             name: c.workflow_name,
             status: statusOf(c),
-            contacted: c.contacted ?? 0,
+            contacted: c.contacted ?? null,
             to_contact: c.to_contact ?? 0,
             open_rate_pct: pct(c.contacts_opened, c.contacted),
             click_rate_pct: pct(c.contacts_clicked, c.contacted),
             reply_rate_pct: pct(c.contacts_answered, c.contacted),
-            bounced: c.bounced ?? 0,
+            bounced: c.bounced ?? null,
             date_start: c.date_start,
             steps: Array.isArray(c.steps) ? c.steps.length : undefined,
           })),
@@ -608,8 +619,8 @@ export async function executeTool(name, argsRaw, auth) {
           total: Number(env.number_of_results ?? rows.length) || rows.length,
           contacts: rows.slice(0, 25).map((c) => ({
             id: c.id,
-            first_name: c.first_name,
-            last_name: c.last_name,
+            first_name: c.first_name ?? c.properties?.find(p => p.identifier === "%first_name%" || p.identifier === "first_name")?.value,
+            last_name: c.last_name ?? c.properties?.find(p => p.identifier === "%last_name%" || p.identifier === "last_name")?.value,
             status: c.status,
             custom_status: c.custom_status,
             is_positive: c.is_positive,

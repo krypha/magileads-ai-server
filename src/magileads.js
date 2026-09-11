@@ -29,7 +29,8 @@ function authHeaders(auth) {
  * One HTTP call. NEVER throws: a network failure returns { ok:false, status:0 }
  * so a blip can't crash the stream (same contract as the Next.js app).
  */
-async function request(path, { auth, method = "GET", body, headers } = {}) {
+export async function request(path, { auth, method = "GET", body, headers } = {}) {
+  if (method === "DELETE") return { ok: false, status: 403, errorKey: "deletion_disabled" };
   let res;
   try {
     res = await fetch(`${API_BASE}${path}`, {
@@ -58,7 +59,7 @@ async function request(path, { auth, method = "GET", body, headers } = {}) {
   }
   const errorKey =
     !res.ok && data && typeof data === "object" ? data.state_message : undefined;
-  return { ok: res.ok, status: res.status, data, errorKey };
+  return { ok: res.ok && data?.state !== false, status: res.status, data, errorKey: errorKey || (data?.state === false ? data.state_message : undefined) };
 }
 
 /** `options` is passed as a urlencoded JSON query param (Magileads convention). */
