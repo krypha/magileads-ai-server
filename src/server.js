@@ -21,7 +21,7 @@ import { cardsForTool, changesData } from './cards.js';
  */
 
 import http from "node:http";
-import { getMe, getOpenAiIntegration } from "./magileads.js";
+import { getMe, listOpenAiIntegrations } from "./magileads.js";
 import { TOOL_LABELS, CREATES_LIST, executeTool } from "./tools.js";
 import { buildSystemPrompt } from "./prompt.js";
 import { MODEL_PROVIDERS, readModelStream, resolveModels, upstreamRequest } from './model-providers.js';
@@ -210,10 +210,21 @@ async function handleChat(req, res, cors) {
   if (provider === 'openai') {
     // Magileads remains the only credential store. Resolve the authenticated
     // account's integration afresh for every chat; never persist or cache it.
-    const integration = await getOpenAiIntegration(auth);
-    if (!integration.ok) return json(res, 502, { ok: false, errorKey: 'integration_unavailable' }, cors);
-    if (!integration.key) return json(res, 412, { ok: false, errorKey: 'provider_key_missing' }, cors);
-    providerKey = integration.key;
+    const integrations = await listOpenAiIntegrations(auth);
+    if (!integrations.ok) return json(res, 502, { ok: false, errorKey: 'integration_unavailable' }, cors);
+    if (!integrations.integrations.length) return json(res, 412, { ok: false, errorKey: 'provider_key_missing' }, cors);
+    const selectedId = body.openai_key_id;
+    if (selectedId != null && (!Number.isSafeInteger(selectedId) || selectedId <= 0)) {
+      return json(res, 400, { ok: false, errorKey: 'invalid_openai_key_id' }, cors);
+    }
+    if (selectedId == null && integrations.integrations.length > 1) {
+      return json(res, 409, { ok: false, errorKey: 'openai_key_selection_required' }, cors);
+    }
+    const selected = selectedId == null
+      ? integrations.integrations[0]
+      : integrations.integrations.find((item) => item.id === selectedId);
+    if (!selected) return json(res, 412, { ok: false, errorKey: 'selected_openai_key_unavailable' }, cors);
+    providerKey = selected.key;
   } else if (!providerKey) {
     return json(res, 503, { ok: false, errorKey: 'ai_not_configured' }, cors);
   }
@@ -371,12 +382,13 @@ async function handleChat(req, res, cors) {
 async function handleProviders(req, res, cors) {
   const caller = await authenticate(req, res, cors);
   if (!caller) return;
-  const integration = await getOpenAiIntegration(caller.auth);
-  if (!integration.ok) return json(res, 502, { ok: false, errorKey: 'integration_unavailable' }, cors);
+  const integrations = await listOpenAiIntegrations(caller.auth);
+  if (!integrations.ok) return json(res, 502, { ok: false, errorKey: 'integration_unavailable' }, cors);
   return json(res, 200, {
     ok: true,
     openrouter_available: Boolean(AI_API_KEY),
-    configured: { openai: Boolean(integration.key), anthropic: false },
+    configured: { openai: integrations.integrations.length > 0, anthropic: false },
+    openai_keys: integrations.integrations.map(({ id, name }) => ({ id, name })),
   }, cors);
 }
 

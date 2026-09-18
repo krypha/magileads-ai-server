@@ -77,9 +77,11 @@ npm run start:node       # node --env-file=.env src/server.js
 La clé OpenAI est créée et conservée dans **Magileads → Paramètres →
 Intégrations**. Après authentification avec `GET /users/me`, le serveur IA lit
 `GET /external-api-keys` avec les identifiants du compte actif (y compris après
-un switch) et utilise la clé OpenAI la plus récente pour cet appel uniquement.
+  un switch) et utilise la clé OpenAI choisie pour cet appel uniquement. Si le
+  compte n'en a qu'une, elle est utilisée automatiquement ; s'il en a plusieurs,
+  `openai_key_id` est obligatoire et doit correspondre à une clé du compte actif.
 Il ne la met ni en fichier, ni en cache, ni dans le prompt ou l'historique du
-chat. `GET /ai/providers` n'expose que la disponibilité de l'intégration.
+  chat. `GET /ai/providers` n'expose que les noms et ID des intégrations.
 
 Les appels OpenAI sont facturés au titulaire de la clé enregistrée dans
 Magileads. Le palier « Gratuit » reste réservé à OpenRouter. Claude reste
@@ -124,6 +126,8 @@ l'application. Le composant Mantine gère ce cas via `getAuthHeaders`.
   côté serveur, **sauf** pour `custom`.
 - `provider` : `"openrouter"` (défaut rétrocompatible) ou `"openai"`.
   OpenAI exige une intégration enregistrée dans Magileads pour le compte appelant.
+- `openai_key_id` : ID de l'intégration OpenAI à utiliser. Obligatoire si le
+  compte actif possède plusieurs clés. Le serveur vérifie la propriété à chaque appel.
 - `model` : **uniquement** avec `tier: "custom"` — identifiant du modèle (ex.
   `stealth/ox-alpha`). Format validé côté serveur (`editeur/modele`) ; sinon
   `400 invalid_custom_model`.
@@ -150,7 +154,8 @@ l'application. Le composant Mantine gère ce cas via `getAuthHeaders`.
 | *(sans event)*            | `[DONE]`                                                             | fin du flux                          |
 
 **Codes d'erreur** : `401` (token absent ou expiré → rafraîchir puis rejouer),
-`429` (rate limit), `412` (intégration OpenAI absente), `502` (lecture de
+  `429` (rate limit), `409` (choix de clé OpenAI nécessaire), `412` (intégration
+  OpenAI absente ou clé choisie inaccessible), `502` (lecture de
 l'intégration Magileads indisponible), `503` (OpenRouter non configuré), `400`
 (corps vide, fournisseur/palier/modèle personnalisé invalide). Un refus de clé
 par OpenAI est signalé dans le flux par `assistant.error` avec
@@ -158,7 +163,7 @@ par OpenAI est signalé dans le flux par `assistant.error` avec
 
 ### Disponibilité des fournisseurs
 
-- `GET /ai/providers` → `{openrouter_available, configured: {openai, anthropic:false}}` ; aucun secret.
+- `GET /ai/providers` → `{openrouter_available, configured: {openai, anthropic:false}, openai_keys: [{id, name}]}` ; aucun secret.
 
 Cette route exige les mêmes identifiants Magileads que `/ai/chat`. L'ajout, la
 modification et la suppression d'une clé se font uniquement dans Magileads.

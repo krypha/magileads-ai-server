@@ -4,28 +4,31 @@ import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 
-test('OpenAI reads the active account integration from Magileads on each chat, without local key routes', { timeout: 20000 }, async () => {
+test('OpenAI selects only a named integration owned by the active account, without local key routes', { timeout: 20000 }, async () => {
   let activeKey = 'sk-account-one-current';
+  let expectedKey = 'sk-account-one-old';
   let openaiCalls = 0;
   let providerError;
   const upstream = http.createServer(async (req, res) => {
-    const account = req.headers.authorization === 'Bearer account-one' ? 1 : 2;
+    const account = req.headers.authorization === 'Bearer account-one' ? 1
+      : req.headers.authorization === 'Bearer account-three' ? 3 : 2;
     if (req.url === '/users/me') {
       return res.end(JSON.stringify({ state: true, user_profile: { id: account, first_name: `User ${account}` } }));
     }
     if (req.url === '/external-api-keys') {
       return res.end(JSON.stringify({ state: true, external_api_keys_list: account === 1 ? [
-        { id: 11, type: 'openai', api_key: 'sk-account-one-old' },
-        { id: 12, type: 'openai', api_key: activeKey },
+        { id: 11, name: 'Marketing', type: 'openai', api_key: 'sk-account-one-old' },
+        { id: 12, name: 'Support', type: 'openai', api_key: activeKey },
         { id: 13, type: 'dropcontact', api_key: 'dropcontact-secret' },
-      ] : [{ id: 20, type: 'dropcontact', api_key: 'other-secret' }] }));
+      ] : account === 3 ? [{ id: 30, name: 'Unique', type: 'openai', api_key: 'sk-account-three' }]
+        : [{ id: 20, type: 'dropcontact', api_key: 'other-secret' }] }));
     }
     let raw = ''; for await (const chunk of req) raw += chunk;
     try {
       if (req.url === '/chat/completions') {
         openaiCalls++;
-        assert.equal(req.headers.authorization, `Bearer ${activeKey}`);
-        assert.ok(!raw.includes(activeKey));
+        assert.equal(req.headers.authorization, `Bearer ${expectedKey}`);
+        assert.ok(!raw.includes(expectedKey));
         assert.ok(!raw.includes('dropcontact-secret'));
         assert.equal(JSON.parse(raw).model, 'gpt-5.4-mini');
         res.writeHead(200, { 'Content-Type': 'text/event-stream' });
@@ -57,9 +60,11 @@ test('OpenAI reads the active account integration from Magileads on each chat, w
     await Promise.race([once(child.stdout, 'data'), once(child, 'exit').then(() => { throw new Error('server exited'); })]);
     const first = await (await call('account-one', '/ai/providers')).json();
     assert.deepEqual(first.configured, { openai: true, anthropic: false });
+    assert.deepEqual(first.openai_keys, [{ id: 12, name: 'Support' }, { id: 11, name: 'Marketing' }]);
     assert.ok(!JSON.stringify(first).includes('sk-account-one'));
     const second = await (await call('account-two', '/ai/providers')).json();
     assert.deepEqual(second.configured, { openai: false, anthropic: false });
+    assert.deepEqual(second.openai_keys, []);
 
     const message = [{ role: 'user', content: 'Mes listes' }];
     assert.equal((await call('account-two', '/ai/chat', 'POST', { provider: 'openai', tier: 'simple', messages: message })).status, 412);
@@ -68,14 +73,27 @@ test('OpenAI reads the active account integration from Magileads on each chat, w
     assert.equal((await call('account-one', '/ai/provider-keys/openai', 'PUT', { api_key: 'bad-key' })).status, 404);
     assert.equal((await call('account-one', '/ai/provider-keys/openai', 'DELETE')).status, 404);
 
-    const chat = await call('account-one', '/ai/chat', 'POST', { provider: 'openai', tier: 'simple', messages: message });
+    const base = { provider: 'openai', tier: 'simple', messages: message };
+    assert.equal((await call('account-one', '/ai/chat', 'POST', base)).status, 409);
+    assert.equal((await call('account-one', '/ai/chat', 'POST', { ...base, openai_key_id: 30 })).status, 412);
+    assert.equal((await call('account-one', '/ai/chat', 'POST', { ...base, openai_key_id: '11' })).status, 400);
+    const chat = await call('account-one', '/ai/chat', 'POST', { ...base, openai_key_id: 11 });
     assert.equal(chat.status, 200);
     assert.match(await chat.text(), /OpenAI works/);
+    expectedKey = activeKey;
+    const otherKey = await call('account-one', '/ai/chat', 'POST', { ...base, openai_key_id: 12 });
+    assert.equal(otherKey.status, 200);
+    assert.match(await otherKey.text(), /OpenAI works/);
     activeKey = 'sk-account-one-rotated';
-    const rotated = await call('account-one', '/ai/chat', 'POST', { provider: 'openai', tier: 'simple', messages: message });
+    expectedKey = activeKey;
+    const rotated = await call('account-one', '/ai/chat', 'POST', { ...base, openai_key_id: 12 });
     assert.equal(rotated.status, 200);
     assert.match(await rotated.text(), /OpenAI works/);
-    assert.equal(openaiCalls, 2);
+    expectedKey = 'sk-account-three';
+    const single = await call('account-three', '/ai/chat', 'POST', base);
+    assert.equal(single.status, 200);
+    assert.match(await single.text(), /OpenAI works/);
+    assert.equal(openaiCalls, 4);
     if (providerError) throw providerError;
   } finally {
     child.kill();

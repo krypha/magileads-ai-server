@@ -73,16 +73,18 @@ function optionsQuery(options) {
 export const getMe = (auth) => request("/users/me", { auth });
 export const listDataFields = (auth) => request("/data-fields", { auth });
 
-/** Read the active account's OpenAI integration for this request only. */
-export async function getOpenAiIntegration(auth) {
+/** Read the active account's OpenAI integrations for this request only. */
+export async function listOpenAiIntegrations(auth) {
   const response = await request("/external-api-keys", { auth });
   if (!response.ok) return { ok: false, status: response.status, errorKey: response.errorKey };
   const keys = response.data?.external_api_keys_list;
   if (!Array.isArray(keys)) return { ok: false, status: 502, errorKey: "invalid_external_keys_response" };
-  const active = keys
-    .filter((item) => item?.type === "openai" && typeof item.api_key === "string" && item.api_key.trim())
-    .sort((left, right) => Number(right.id || 0) - Number(left.id || 0))[0];
-  return { ok: true, key: active?.api_key.trim() ?? null };
+  const integrations = keys
+    .filter((item) => item?.type === "openai" && Number.isSafeInteger(Number(item.id)) && Number(item.id) > 0 &&
+      typeof item.api_key === "string" && item.api_key.trim())
+    .map((item) => ({ id: Number(item.id), name: typeof item.name === "string" ? item.name.trim() : "", key: item.api_key.trim() }))
+    .sort((left, right) => right.id - left.id);
+  return { ok: true, integrations };
 }
 
 /* --------------------------------- LinkedIn -------------------------------- */
