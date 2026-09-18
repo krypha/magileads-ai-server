@@ -16,10 +16,10 @@ front** (ReactJS, autre application web, mobile…).
 
 Le modèle **n'a aucune mémoire** : à chaque message, le serveur réassemble
 `prompt système + historique + outils` et l'envoie au fournisseur choisi :
-OpenRouter (clé de la plateforme), OpenAI ou Claude (clé du compte Magileads).
+OpenRouter (clé de la plateforme) ou OpenAI (intégration du compte Magileads).
 
 ```
-Front ──(token Magileads)──► ai-server ──► modèle (OpenRouter / OpenAI / Claude)
+Front ──(token Magileads)──► ai-server ──► modèle (OpenRouter / OpenAI)
                                  │              │
                                  │   « appeler list_campaigns »
                                  ▼
@@ -28,9 +28,10 @@ Front ──(token Magileads)──► ai-server ──► modèle (OpenRouter /
                                  └──► résultat ──► modèle ──► réponse (SSE)
 ```
 
-**Sécurité** : le token de l'utilisateur sert **uniquement** à exécuter les outils
-côté serveur. Il **n'entre jamais** dans le contexte du modèle, qui ne reçoit que
-les *résultats*. Chaque utilisateur n'accède donc qu'à **ses** données.
+**Sécurité** : le token de l'utilisateur sert à lire son intégration OpenAI et à
+exécuter les outils côté serveur. Il **n'entre jamais** dans le contexte du
+modèle, qui ne reçoit que les *résultats*. Chaque utilisateur n'accède donc
+qu'à **ses** données.
 
 **Le serveur ne rafraîchit pas les tokens** : le front s'en charge déjà
 (interceptor axios + Web Locks). Lorsqu'un token est expiré, le serveur répond
@@ -42,7 +43,7 @@ et de rejouer la requête.
 ## 2. Installation et lancement
 
 ```bash
-cp .env.example .env     # renseigner AI_API_KEY pour OpenRouter, AI_CREDENTIALS_KEY pour les clés des comptes
+cp .env.example .env     # renseigner AI_API_KEY pour OpenRouter
 bun install              # aucune dépendance, crée simplement le lockfile
 bun run start            # → http://localhost:8787
 ```
@@ -67,37 +68,22 @@ npm run start:node       # node --env-file=.env src/server.js
 | `AI_MODEL`           | Modèle du palier « Simple » (palier par défaut)                     |
 | `AI_MODEL_COMPLEX`   | Modèle du palier « Complexe » (si vide → identique à Simple)        |
 | `ALLOW_CUSTOM_MODEL` | `false` pour désactiver le palier « Perso. »                         |
-| `AI_CREDENTIALS_KEY` | Clé maître AES-256-GCM, 32 octets en hexadécimal ou base64, pour les clés des comptes |
-| `AI_CREDENTIALS_FILE` | Fichier persistant chiffré (Compose : `/data/provider-keys.json`) |
 | `OPENAI_MODEL` / `OPENAI_MODEL_COMPLEX` | Modèles OpenAI par défaut : `gpt-5.4-mini` / `gpt-5.4` |
-| `ANTHROPIC_MODEL` / `ANTHROPIC_MODEL_COMPLEX` | Modèles Claude par défaut : `claude-haiku-4-5-20251001` / `claude-sonnet-5` |
 
 > ⚠️ Le modèle doit supporter le **function calling**.
 
-### Clés propres à chaque compte
+### Intégration OpenAI du compte
 
-Le front v5 saisit une clé OpenAI ou Claude dans une fenêtre dédiée, hors du
-chat. `PUT /ai/provider-keys/{openai|anthropic}` la chiffre et la conserve pour
-l'`id` renvoyé par `GET /users/me` avec les identifiants du compte actif (y
-compris après un switch). `GET /ai/provider-keys` ne rend que les booléens de
-configuration ; `DELETE /ai/provider-keys/{provider}` retire la copie du serveur.
-Le secret n'est jamais ajouté au prompt, à l'historique local ni aux réponses.
+La clé OpenAI est créée et conservée dans **Magileads → Paramètres →
+Intégrations**. Après authentification avec `GET /users/me`, le serveur IA lit
+`GET /external-api-keys` avec les identifiants du compte actif (y compris après
+un switch) et utilise la clé OpenAI la plus récente pour cet appel uniquement.
+Il ne la met ni en fichier, ni en cache, ni dans le prompt ou l'historique du
+chat. `GET /ai/providers` n'expose que la disponibilité de l'intégration.
 
-Configurer `AI_CREDENTIALS_KEY` dans Dokploy et monter un volume **persistant**
-sur `/data` avant d'utiliser ces routes. Avec Compose, le volume `ai-credentials`
-est déclaré. En mode Application Dokploy, le volume est à ajouter dans sa
-configuration. Garder la clé maître stable et sauvegarder ensemble le volume et
-la variable : changer la clé maître rend les secrets précédents illisibles. Le
-fichier est prévu pour **une instance serveur** ; plusieurs réplicas demandent
-un magasin partagé avec transactions (base de données ou service de secrets).
-Sans clé maître, OpenRouter continue de fonctionner et l'interface indique que
-l'ajout de clés personnelles est indisponible.
-
-Les appels avec une clé personnelle sont facturés par OpenAI ou Anthropic au
-titulaire de cette clé. Le palier nommé « Gratuit » reste réservé à OpenRouter :
-le serveur refuse explicitement `tier: "free"` pour les fournisseurs directs.
-Claude utilise l'API Messages native, y compris son streaming et ses appels
-d'outils ; sa couche de compatibilité OpenAI n'est pas utilisée.
+Les appels OpenAI sont facturés au titulaire de la clé enregistrée dans
+Magileads. Le palier « Gratuit » reste réservé à OpenRouter. Claude reste
+désactivé tant que l'API Magileads n'accepte pas son intégration.
 
 ---
 
@@ -136,8 +122,8 @@ l'application. Le composant Mantine gère ce cas via `getAuthHeaders`.
 
 - `tier` : `"free"` | `"simple"` | `"complex"` | `"custom"`. Le nom du modèle reste
   côté serveur, **sauf** pour `custom`.
-- `provider` : `"openrouter"` (défaut rétrocompatible), `"openai"` ou `"anthropic"`.
-  OpenAI et Anthropic exigent une clé enregistrée pour le compte appelant.
+- `provider` : `"openrouter"` (défaut rétrocompatible) ou `"openai"`.
+  OpenAI exige une intégration enregistrée dans Magileads pour le compte appelant.
 - `model` : **uniquement** avec `tier: "custom"` — identifiant du modèle (ex.
   `stealth/ox-alpha`). Format validé côté serveur (`editeur/modele`) ; sinon
   `400 invalid_custom_model`.
@@ -164,22 +150,21 @@ l'application. Le composant Mantine gère ce cas via `getAuthHeaders`.
 | *(sans event)*            | `[DONE]`                                                             | fin du flux                          |
 
 **Codes d'erreur** : `401` (token absent ou expiré → rafraîchir puis rejouer),
-`429` (rate limit), `412` (clé personnelle absente), `503` (fournisseur ou
-stockage des clés non configuré), `400` (corps vide, fournisseur/palier/modèle
-personnalisé invalide). Un refus de clé par OpenAI/Claude est signalé dans le
-flux par `assistant.error` avec `provider_key_invalid`.
+`429` (rate limit), `412` (intégration OpenAI absente), `502` (lecture de
+l'intégration Magileads indisponible), `503` (OpenRouter non configuré), `400`
+(corps vide, fournisseur/palier/modèle personnalisé invalide). Un refus de clé
+par OpenAI est signalé dans le flux par `assistant.error` avec
+`provider_key_invalid`.
 
-### Routes des clés personnelles
+### Disponibilité des fournisseurs
 
-- `GET /ai/provider-keys` → `{openrouter_available, storage_available, configured: {openai, anthropic}}` ; aucun secret.
-- `PUT /ai/provider-keys/{openai|anthropic}` avec `{api_key}` → ajoute ou remplace la clé pour le compte authentifié.
-- `DELETE /ai/provider-keys/{openai|anthropic}` → retire la copie du serveur.
+- `GET /ai/providers` → `{openrouter_available, configured: {openai, anthropic:false}}` ; aucun secret.
 
-Ces routes exigent les mêmes identifiants Magileads que `/ai/chat`. Une clé
-enregistrée n'est pas déclarée « testée » : un refus du fournisseur apparaît au
-premier appel du chat et invite à la remplacer.
+Cette route exige les mêmes identifiants Magileads que `/ai/chat`. L'ajout, la
+modification et la suppression d'une clé se font uniquement dans Magileads.
+L'ancien endpoint d'écriture `/ai/provider-keys` a été retiré.
 
-### `GET /health` → `{ ok, configured }`
+### `GET /health` → `{ ok, openrouter_available }`
 ### `GET /ai/meta` → `{ toolLabels, createsList, tiers }` (libellés FR pour l'indicateur)
 
 ---
@@ -326,14 +311,11 @@ docker compose up -d --build
    AI_API_KEY=sk-or-v1-...
    AI_MODEL=<modèle simple>
    AI_MODEL_COMPLEX=<modèle complexe>
-   AI_CREDENTIALS_KEY=<32 octets en hex ou base64>
-   AI_CREDENTIALS_FILE=/data/provider-keys.json
    ```
-4. Monter un **volume persistant** sur `/data` avec un seul réplica du serveur.
-5. **Domains** → ajouter le domaine (ex. `ai.magileads.com`), **Container Port
+4. **Domains** → ajouter le domaine (ex. `ai.magileads.com`), **Container Port
    `8787`**, HTTPS activé.
-6. Déployer, puis vérifier : `curl https://ai.magileads.com/health` →
-   `{"ok":true,"configured":true}`.
+5. Déployer, puis vérifier : `curl https://ai.magileads.com/health` →
+   `{"ok":true,"openrouter_available":true}` si OpenRouter est configuré.
 
 **Option B — Compose** : *Create Compose*, pointer sur `docker-compose.yml` et
 définir les variables dans l'onglet Environment. Le mapping `ports` peut être
@@ -348,8 +330,9 @@ retiré lorsque le proxy Dokploy est utilisé.
   le buffering est désactivé côté proxy.
 - **Timeout du proxy** : un audit peut dépasser 60 s. Porter le timeout de réponse
   (Traefik/nginx) à ~180 s pour ne pas interrompre le flux.
-- **Secrets** : `AI_API_KEY` et `AI_CREDENTIALS_KEY` restent côté serveur et ne
-  doivent jamais être exposées au front. Sauvegarder le volume et la clé maître.
+- **Secrets** : `AI_API_KEY` reste côté serveur. Les clés OpenAI sont lues dans
+  Magileads pour chaque appel et ne sont ni persistées ni journalisées par le
+  serveur IA. Aucun volume de données n'est nécessaire.
 
 ---
 

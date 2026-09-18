@@ -11,9 +11,6 @@ ENV NODE_ENV=production \
 COPY package.json ./
 COPY src ./src
 
-# The persistent /data volume is writable by the unprivileged runtime user.
-RUN mkdir -p /data && chown bun:bun /data
-
 # L'image oven/bun fournit déjà un utilisateur non-root "bun".
 USER bun
 

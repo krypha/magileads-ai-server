@@ -8,7 +8,7 @@ Le serveur conserve les outils de lecture/ciblage existants et ajoute un catalog
 
 ## Comportement
 
-- Fournisseur du modèle : OpenRouter reste le choix partagé par défaut ; OpenAI et Claude utilisent une clé API propre au compte Magileads, saisie dans le sélecteur de l'assistant. Le secret n'entre ni dans le chat, ni dans son historique local, ni dans Zustand. Le serveur IA le chiffre avec AES-256-GCM et le rattache à l'identité vérifiée par `/users/me`. Claude utilise l'API Messages native et conserve les outils/cartes du chat. Le palier « Gratuit » n'est proposé que pour OpenRouter : les API directes peuvent facturer les appels au propriétaire de la clé.
+- Fournisseur du modèle : OpenRouter reste le choix partagé par défaut. OpenAI utilise l'intégration déjà enregistrée dans le compte Magileads actif. Le serveur IA vérifie l'identité avec `/users/me`, lit `/external-api-keys` à chaque appel et utilise la clé OpenAI en mémoire pendant cet appel seulement. Il ne dispose d'aucun stockage de clés ou volume `/data`. Claude est visible mais désactivé tant que l'API Magileads ne prend pas en charge son intégration. Le palier « Gratuit » n'est proposé que pour OpenRouter : les appels OpenAI peuvent être facturés au propriétaire de la clé.
 
 - Suppression retirée des outils et des consignes. Refus des anciens appels, des noms inconnus et des requêtes DELETE dans le client du serveur IA. Aucun bouton de confirmation de suppression métier dans v5. La suppression locale d’une conversation reste disponible.
 - Connexion Google/Microsoft ou SMTP/IMAP via les composants Expéditeurs existants. Les mots de passe du formulaire ne sont pas transmis à la fonction de chat ni enregistrés dans son historique. OAuth conserve le parcours et les contrôles de marque blanche existants.
@@ -31,7 +31,7 @@ Le serveur construit les cartes à partir des résultats d’outils, jamais à p
 
 ## Vérification et mise en service
 
-- Serveur : `node --test src/*.test.js` (clés chiffrées, isolation entre comptes, OpenAI, Claude natif, outils et flux HTTP).
+- Serveur : `node --test src/*.test.js` (intégration OpenAI Magileads par compte, absence de stockage local, outils et flux HTTP).
 - Front : `node scripts/test-assistant.mjs`, `npm run typecheck` et lint des fichiers Assistant.
 - Tests navigateur : prototype v0 exécuté dans une copie temporaire (dépendances v5 ; analytics et import shadcn CSS indisponible retirés dans cette copie uniquement), audit affiché ; cartes v5 sur données fictives, clic Dupliquer, ouverture du formulaire SMTP. Les sources v0 sont intactes.
 - Aucun envoi réel, enrichissement payant ou duplication sur un compte de production effectué. Le flux HTTP complet est testé contre un fournisseur et une API simulés ; les tests ne valident pas les droits/quota d’un compte réel ni toutes les réponses possibles de l’API.
@@ -39,7 +39,7 @@ Le serveur construit les cartes à partir des résultats d’outils, jamais à p
 
 **Déployer le serveur IA et le front ensemble.** Le front utilise AI_SERVER_URL et pointe par défaut sur https://magileads-ai-server.krypha.com. Modifier les fichiers locaux du serveur ne modifie pas ce service distant. En local, définir AI_SERVER_URL sur l’instance locale pour tester l’ensemble, puis utiliser un compte de test connecté. Les anciennes instances serveur n’émettent pas les nouvelles cartes et conservent leur ancienne politique de suppression.
 
-Pour les clés OpenAI/Claude, configurer `AI_CREDENTIALS_KEY` (32 octets hex/base64) sur le serveur et conserver `/data/provider-keys.json` sur un volume persistant. Sans ces deux paramètres, OpenRouter fonctionne mais l'ajout de clés par compte est indisponible. La même clé maître doit être conservée entre déploiements ; la rotation nécessite de ressaisir les clés. Une seule instance peut écrire dans ce fichier ; plusieurs réplicas nécessitent un magasin partagé transactionnel.
+Pour OpenAI, ajouter la clé dans **Magileads → Paramètres → Intégrations**. Le serveur IA ne requiert ni `AI_CREDENTIALS_KEY` ni volume persistant. `GET /ai/providers` permet au front de vérifier si le compte actif possède une intégration OpenAI ; les routes d'écriture de clés sur le serveur IA ont été retirées.
 
 ## Catalogue
 

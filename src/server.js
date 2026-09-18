@@ -12,8 +12,8 @@ import { cardsForTool, changesData } from './cards.js';
  * AUTH — the caller sends its OWN Magileads credentials:
  *   Authorization: Bearer <magileads access_token>   (what the React app already has)
  *   or  X-API-Key: <magileads api key>
- * Those credentials are used ONLY to execute tools server-side. They are NEVER put
- * in the model context, and the assistant can only ever see that user's data.
+ * Those credentials read the caller's OpenAI integration from Magileads and
+ * execute tools server-side. They are NEVER put in the model context.
  *
  * This server does NOT refresh tokens: the React front already owns that logic
  * (axios interceptor + Web Locks). If the token is expired we answer 401 with
@@ -21,10 +21,9 @@ import { cardsForTool, changesData } from './cards.js';
  */
 
 import http from "node:http";
-import { getMe } from "./magileads.js";
+import { getMe, getOpenAiIntegration } from "./magileads.js";
 import { TOOL_LABELS, CREATES_LIST, executeTool } from "./tools.js";
 import { buildSystemPrompt } from "./prompt.js";
-import { providerCredentials } from './provider-credentials.js';
 import { MODEL_PROVIDERS, readModelStream, resolveModels, upstreamRequest } from './model-providers.js';
 
 const PORT = Number(process.env.PORT) || 8787;
@@ -61,7 +60,7 @@ function corsHeaders(origin) {
   if (!allow) return null; // origin not allowed
   return {
     "Access-Control-Allow-Origin": allow,
-    "Access-Control-Allow-Methods": "POST, PUT, DELETE, GET, OPTIONS",
+    "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization, X-API-Key",
     "Access-Control-Max-Age": "86400",
     Vary: "Origin",
@@ -171,7 +170,7 @@ async function handleChat(req, res, cors) {
   if (!caller) return;
   const { auth, profile, accountId } = caller;
 
-  if (rateLimited(String(profile.id ?? profile.email ?? "anon"))) {
+  if (rateLimited(String(accountId))) {
     return json(res, 429, { ok: false, errorKey: "rate_limited" }, cors);
   }
 
@@ -208,19 +207,15 @@ async function handleChat(req, res, cors) {
   }
 
   let providerKey = AI_API_KEY;
-  if (provider === 'openrouter' && !providerKey) {
+  if (provider === 'openai') {
+    // Magileads remains the only credential store. Resolve the authenticated
+    // account's integration afresh for every chat; never persist or cache it.
+    const integration = await getOpenAiIntegration(auth);
+    if (!integration.ok) return json(res, 502, { ok: false, errorKey: 'integration_unavailable' }, cors);
+    if (!integration.key) return json(res, 412, { ok: false, errorKey: 'provider_key_missing' }, cors);
+    providerKey = integration.key;
+  } else if (!providerKey) {
     return json(res, 503, { ok: false, errorKey: 'ai_not_configured' }, cors);
-  }
-  if (provider !== 'openrouter') {
-    if (!providerCredentials.available) {
-      return json(res, 503, { ok: false, errorKey: 'credential_store_unavailable' }, cors);
-    }
-    try {
-      providerKey = await providerCredentials.get(accountId, provider);
-    } catch {
-      return json(res, 503, { ok: false, errorKey: 'credential_store_unavailable' }, cors);
-    }
-    if (!providerKey) return json(res, 412, { ok: false, errorKey: 'provider_key_missing' }, cors);
   }
 
   const convo = [{ role: "system", content: buildSystemPrompt(profile) }, ...clientMessages];
@@ -304,7 +299,7 @@ async function handleChat(req, res, cors) {
         sendEvent("model.info", { provider, tier, model, fallback: modelIdx > 0 });
       }
 
-      const { assistantContent, calls } = await readModelStream(upstream.body, provider, (delta) => {
+      const { assistantContent, calls } = await readModelStream(upstream.body, (delta) => {
         produced = true;
         sendText(delta);
       });
@@ -373,54 +368,16 @@ async function handleChat(req, res, cors) {
 
 /* --------------------------------- routing -------------------------------- */
 
-async function handleProviderKeys(req, res, cors, provider) {
+async function handleProviders(req, res, cors) {
   const caller = await authenticate(req, res, cors);
   if (!caller) return;
-  const { accountId } = caller;
-
-  if (req.method === 'GET' && !provider) {
-    try {
-      const configured = providerCredentials.available
-        ? await providerCredentials.status(accountId)
-        : { openai: false, anthropic: false };
-      return json(res, 200, {
-        ok: true,
-        openrouter_available: Boolean(AI_API_KEY),
-        storage_available: providerCredentials.available,
-        configured,
-      }, cors);
-    } catch {
-      return json(res, 503, { ok: false, errorKey: 'credential_store_unavailable' }, cors);
-    }
-  }
-  if (!['openai', 'anthropic'].includes(provider)) {
-    return json(res, 404, { ok: false, errorKey: 'not_found' }, cors);
-  }
-  if (!providerCredentials.available) {
-    return json(res, 503, { ok: false, errorKey: 'credential_store_unavailable' }, cors);
-  }
-
-  if (req.method === 'PUT') {
-    let body;
-    try { body = await readBody(req); }
-    catch { return json(res, 413, { ok: false, errorKey: 'payload_too_large' }, cors); }
-    try {
-      await providerCredentials.set(accountId, provider, body.api_key);
-      return json(res, 200, { ok: true, configured: true }, cors);
-    } catch (error) {
-      return json(res, error.message === 'invalid_provider_key' ? 400 : 503,
-        { ok: false, errorKey: error.message === 'invalid_provider_key' ? error.message : 'credential_store_unavailable' }, cors);
-    }
-  }
-  if (req.method === 'DELETE') {
-    try {
-      await providerCredentials.remove(accountId, provider);
-      return json(res, 200, { ok: true, configured: false }, cors);
-    } catch {
-      return json(res, 503, { ok: false, errorKey: 'credential_store_unavailable' }, cors);
-    }
-  }
-  return json(res, 405, { ok: false, errorKey: 'method_not_allowed' }, cors);
+  const integration = await getOpenAiIntegration(caller.auth);
+  if (!integration.ok) return json(res, 502, { ok: false, errorKey: 'integration_unavailable' }, cors);
+  return json(res, 200, {
+    ok: true,
+    openrouter_available: Boolean(AI_API_KEY),
+    configured: { openai: Boolean(integration.key), anthropic: false },
+  }, cors);
 }
 
 const server = http.createServer(async (req, res) => {
@@ -436,7 +393,7 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
 
   if (req.method === "GET" && url.pathname === "/health") {
-    return json(res, 200, { ok: true, configured: Boolean(AI_API_KEY) || providerCredentials.available }, cors);
+    return json(res, 200, { ok: true, openrouter_available: Boolean(AI_API_KEY) }, cors);
   }
 
   if (req.method === "GET" && url.pathname === "/ai/meta") {
@@ -461,12 +418,8 @@ const server = http.createServer(async (req, res) => {
     );
   }
 
-  if (url.pathname === '/ai/provider-keys' && req.method === 'GET') {
-    return handleProviderKeys(req, res, cors, null);
-  }
-  const keyRoute = /^\/ai\/provider-keys\/(openai|anthropic)$/.exec(url.pathname);
-  if (keyRoute && ['PUT', 'DELETE'].includes(req.method)) {
-    return handleProviderKeys(req, res, cors, keyRoute[1]);
+  if (url.pathname === '/ai/providers' && req.method === 'GET') {
+    return handleProviders(req, res, cors);
   }
 
   if (req.method === "POST" && url.pathname === "/ai/chat") {
@@ -480,6 +433,5 @@ server.listen(PORT, () => {
   console.log(`[ai-server] listening on http://localhost:${PORT}`);
   console.log(`[ai-server] tiers -> free=${resolveModels('openrouter', "free").length} candidat(s) | simple=${AI_MODEL || "(unset)"} | complex=${AI_MODEL_COMPLEX || "(= simple)"} | custom=${ALLOW_CUSTOM_MODEL ? "autorise" : "desactive"}`);
   if (!AI_API_KEY) console.warn("[ai-server] NOTE: OpenRouter unavailable (AI_API_KEY not set)");
-  if (!providerCredentials.available) console.warn('[ai-server] NOTE: per-account provider keys unavailable (set AI_CREDENTIALS_KEY)');
   if (!AI_MODEL) console.warn("[ai-server] NOTE: AI_MODEL non defini -> les paliers simple/complex sont indisponibles");
 });

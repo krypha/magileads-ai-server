@@ -27,15 +27,8 @@ services:
       AI_API_KEY: ${AI_API_KEY:-}
       AI_MODEL: ${AI_MODEL:-}
       AI_MODEL_COMPLEX: ${AI_MODEL_COMPLEX:-}
-      # Clés OpenAI/Claude par compte, chiffrées avec cette clé maître.
-      AI_CREDENTIALS_KEY: ${AI_CREDENTIALS_KEY:-}
-      AI_CREDENTIALS_FILE: /data/provider-keys.json
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.4-mini}
       OPENAI_MODEL_COMPLEX: ${OPENAI_MODEL_COMPLEX:-gpt-5.4}
-      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-haiku-4-5-20251001}
-      ANTHROPIC_MODEL_COMPLEX: ${ANTHROPIC_MODEL_COMPLEX:-claude-sonnet-5}
-    volumes:
-      - ai-credentials:/data
     healthcheck:
       test:
         - CMD
@@ -51,6 +44,3 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-
-volumes:
-  ai-credentials:
