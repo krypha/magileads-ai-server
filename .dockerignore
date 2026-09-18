@@ -7,5 +7,6 @@ node_modules
 examples
 README.md
 *.log
+data
 Dockerfile
 docker-compose.yml

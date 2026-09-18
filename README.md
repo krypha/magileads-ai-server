@@ -15,10 +15,11 @@ front** (ReactJS, autre application web, mobile…).
 ## 1. Principe
 
 Le modèle **n'a aucune mémoire** : à chaque message, le serveur réassemble
-`prompt système + historique + outils` et l'envoie au fournisseur (OpenRouter).
+`prompt système + historique + outils` et l'envoie au fournisseur choisi :
+OpenRouter (clé de la plateforme), OpenAI ou Claude (clé du compte Magileads).
 
 ```
-Front ──(token Magileads)──► ai-server ──► modèle (OpenRouter)
+Front ──(token Magileads)──► ai-server ──► modèle (OpenRouter / OpenAI / Claude)
                                  │              │
                                  │   « appeler list_campaigns »
                                  ▼
@@ -41,7 +42,7 @@ et de rejouer la requête.
 ## 2. Installation et lancement
 
 ```bash
-cp .env.example .env     # renseigner AI_API_KEY et les modèles
+cp .env.example .env     # renseigner AI_API_KEY pour OpenRouter, AI_CREDENTIALS_KEY pour les clés des comptes
 bun install              # aucune dépendance, crée simplement le lockfile
 bun run start            # → http://localhost:8787
 ```
@@ -60,14 +61,43 @@ npm run start:node       # node --env-file=.env src/server.js
 | `ALLOWED_ORIGINS`    | Origines CORS autorisées, séparées par des virgules (`*` en dev)    |
 | `RATE_LIMIT_PER_MIN` | Requêtes max par utilisateur et par minute (défaut 20)              |
 | `MAGILEADS_API_BASE` | `https://app.api-magileads.net`                                     |
-| `AI_API_URL`         | Fournisseur compatible OpenAI (défaut OpenRouter)                   |
-| `AI_API_KEY`         | Clé du fournisseur (**serveur uniquement**)                         |
+| `AI_API_URL`         | Hôte OpenRouter (défaut `https://openrouter.ai/api/v1`)             |
+| `AI_API_KEY`         | Clé OpenRouter de la plateforme (**serveur uniquement**)           |
 | `AI_MODEL_FREE`      | Palier « Gratuit » — défaut `openrouter/free` (routeur géré par OpenRouter). Accepte aussi une liste séparée par des virgules, essayée dans l'ordre |
 | `AI_MODEL`           | Modèle du palier « Simple » (palier par défaut)                     |
 | `AI_MODEL_COMPLEX`   | Modèle du palier « Complexe » (si vide → identique à Simple)        |
 | `ALLOW_CUSTOM_MODEL` | `false` pour désactiver le palier « Perso. »                         |
+| `AI_CREDENTIALS_KEY` | Clé maître AES-256-GCM, 32 octets en hexadécimal ou base64, pour les clés des comptes |
+| `AI_CREDENTIALS_FILE` | Fichier persistant chiffré (Compose : `/data/provider-keys.json`) |
+| `OPENAI_MODEL` / `OPENAI_MODEL_COMPLEX` | Modèles OpenAI par défaut : `gpt-5.4-mini` / `gpt-5.4` |
+| `ANTHROPIC_MODEL` / `ANTHROPIC_MODEL_COMPLEX` | Modèles Claude par défaut : `claude-haiku-4-5-20251001` / `claude-sonnet-5` |
 
 > ⚠️ Le modèle doit supporter le **function calling**.
+
+### Clés propres à chaque compte
+
+Le front v5 saisit une clé OpenAI ou Claude dans une fenêtre dédiée, hors du
+chat. `PUT /ai/provider-keys/{openai|anthropic}` la chiffre et la conserve pour
+l'`id` renvoyé par `GET /users/me` avec les identifiants du compte actif (y
+compris après un switch). `GET /ai/provider-keys` ne rend que les booléens de
+configuration ; `DELETE /ai/provider-keys/{provider}` retire la copie du serveur.
+Le secret n'est jamais ajouté au prompt, à l'historique local ni aux réponses.
+
+Configurer `AI_CREDENTIALS_KEY` dans Dokploy et monter un volume **persistant**
+sur `/data` avant d'utiliser ces routes. Avec Compose, le volume `ai-credentials`
+est déclaré. En mode Application Dokploy, le volume est à ajouter dans sa
+configuration. Garder la clé maître stable et sauvegarder ensemble le volume et
+la variable : changer la clé maître rend les secrets précédents illisibles. Le
+fichier est prévu pour **une instance serveur** ; plusieurs réplicas demandent
+un magasin partagé avec transactions (base de données ou service de secrets).
+Sans clé maître, OpenRouter continue de fonctionner et l'interface indique que
+l'ajout de clés personnelles est indisponible.
+
+Les appels avec une clé personnelle sont facturés par OpenAI ou Anthropic au
+titulaire de cette clé. Le palier nommé « Gratuit » reste réservé à OpenRouter :
+le serveur refuse explicitement `tier: "free"` pour les fournisseurs directs.
+Claude utilise l'API Messages native, y compris son streaming et ses appels
+d'outils ; sa couche de compatibilité OpenAI n'est pas utilisée.
 
 ---
 
@@ -94,6 +124,7 @@ l'application. Le composant Mantine gère ce cas via `getAuthHeaders`.
 
 ```json
 {
+  "provider": "openrouter",
   "tier": "simple",
   "messages": [
     { "role": "user", "content": "Combien de campagnes ai-je ?" },
@@ -105,6 +136,8 @@ l'application. Le composant Mantine gère ce cas via `getAuthHeaders`.
 
 - `tier` : `"free"` | `"simple"` | `"complex"` | `"custom"`. Le nom du modèle reste
   côté serveur, **sauf** pour `custom`.
+- `provider` : `"openrouter"` (défaut rétrocompatible), `"openai"` ou `"anthropic"`.
+  OpenAI et Anthropic exigent une clé enregistrée pour le compte appelant.
 - `model` : **uniquement** avec `tier: "custom"` — identifiant du modèle (ex.
   `stealth/ox-alpha`). Format validé côté serveur (`editeur/modele`) ; sinon
   `400 invalid_custom_model`.
@@ -131,8 +164,20 @@ l'application. Le composant Mantine gère ce cas via `getAuthHeaders`.
 | *(sans event)*            | `[DONE]`                                                             | fin du flux                          |
 
 **Codes d'erreur** : `401` (token absent ou expiré → rafraîchir puis rejouer),
-`429` (rate limit), `503` (`AI_API_KEY` non configurée), `400` (corps vide ou
-modèle personnalisé invalide).
+`429` (rate limit), `412` (clé personnelle absente), `503` (fournisseur ou
+stockage des clés non configuré), `400` (corps vide, fournisseur/palier/modèle
+personnalisé invalide). Un refus de clé par OpenAI/Claude est signalé dans le
+flux par `assistant.error` avec `provider_key_invalid`.
+
+### Routes des clés personnelles
+
+- `GET /ai/provider-keys` → `{openrouter_available, storage_available, configured: {openai, anthropic}}` ; aucun secret.
+- `PUT /ai/provider-keys/{openai|anthropic}` avec `{api_key}` → ajoute ou remplace la clé pour le compte authentifié.
+- `DELETE /ai/provider-keys/{openai|anthropic}` → retire la copie du serveur.
+
+Ces routes exigent les mêmes identifiants Magileads que `/ai/chat`. Une clé
+enregistrée n'est pas déclarée « testée » : un refus du fournisseur apparaît au
+premier appel du chat et invite à la remplacer.
 
 ### `GET /health` → `{ ok, configured }`
 ### `GET /ai/meta` → `{ toolLabels, createsList, tiers }` (libellés FR pour l'indicateur)
@@ -281,10 +326,13 @@ docker compose up -d --build
    AI_API_KEY=sk-or-v1-...
    AI_MODEL=<modèle simple>
    AI_MODEL_COMPLEX=<modèle complexe>
+   AI_CREDENTIALS_KEY=<32 octets en hex ou base64>
+   AI_CREDENTIALS_FILE=/data/provider-keys.json
    ```
-4. **Domains** → ajouter le domaine (ex. `ai.magileads.com`), **Container Port
+4. Monter un **volume persistant** sur `/data` avec un seul réplica du serveur.
+5. **Domains** → ajouter le domaine (ex. `ai.magileads.com`), **Container Port
    `8787`**, HTTPS activé.
-5. Déployer, puis vérifier : `curl https://ai.magileads.com/health` →
+6. Déployer, puis vérifier : `curl https://ai.magileads.com/health` →
    `{"ok":true,"configured":true}`.
 
 **Option B — Compose** : *Create Compose*, pointer sur `docker-compose.yml` et
@@ -300,8 +348,8 @@ retiré lorsque le proxy Dokploy est utilisé.
   le buffering est désactivé côté proxy.
 - **Timeout du proxy** : un audit peut dépasser 60 s. Porter le timeout de réponse
   (Traefik/nginx) à ~180 s pour ne pas interrompre le flux.
-- **Secrets** : `AI_API_KEY` reste côté serveur et ne doit jamais être exposée au
-  front.
+- **Secrets** : `AI_API_KEY` et `AI_CREDENTIALS_KEY` restent côté serveur et ne
+  doivent jamais être exposées au front. Sauvegarder le volume et la clé maître.
 
 ---
 
@@ -339,7 +387,8 @@ console.log('expire:',new Date(p.exp*1000).toISOString(),'| maintenant:',new Dat
   **rejoue automatiquement** la requête une fois, avec le token frais.
 
 Autres codes : `403` = origine absente de `ALLOWED_ORIGINS` · `429` = rate limit ·
-`503` = `AI_API_KEY` manquante côté serveur.
+`412` = clé personnelle absente pour le compte · `503` = fournisseur ou stockage
+des clés non configuré côté serveur.
 
 ---
 

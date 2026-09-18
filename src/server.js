@@ -22,49 +22,19 @@ import { cardsForTool, changesData } from './cards.js';
 
 import http from "node:http";
 import { getMe } from "./magileads.js";
-import { AI_TOOLS, TOOL_LABELS, CREATES_LIST, executeTool } from "./tools.js";
+import { TOOL_LABELS, CREATES_LIST, executeTool } from "./tools.js";
 import { buildSystemPrompt } from "./prompt.js";
+import { providerCredentials } from './provider-credentials.js';
+import { MODEL_PROVIDERS, readModelStream, resolveModels, upstreamRequest } from './model-providers.js';
 
 const PORT = Number(process.env.PORT) || 8787;
-const AI_API_URL = (process.env.AI_API_URL || "https://openrouter.ai/api/v1").replace(/\/+$/, "");
 const AI_API_KEY = process.env.AI_API_KEY;
 const AI_MODEL = process.env.AI_MODEL;
 const AI_MODEL_COMPLEX = process.env.AI_MODEL_COMPLEX;
-
-// Palier "free" : par défaut `openrouter/free`, un routeur géré par OpenRouter qui
-// choisit lui-même un modèle gratuit disponible (et supporte le function calling).
-// On accepte quand même une LISTE séparée par des virgules : les candidats sont
-// alors essayés dans l'ordre, avec bascule automatique si l'un est saturé (429),
-// retiré (404) ou devenu payant (402) — utile si l'on épingle des modèles précis.
-const AI_MODEL_FREE = process.env.AI_MODEL_FREE || "openrouter/free";
-
-// Palier "custom" : le client fournit lui-même l'id du modèle (ex. stealth/ox-alpha).
 const ALLOW_CUSTOM_MODEL = process.env.ALLOW_CUSTOM_MODEL !== "false";
-// Format attendu : "editeur/modele" (+ variantes ":free", ":beta", "-2.1"…).
-const CUSTOM_MODEL_RE = /^[a-z0-9][\w.-]*\/[\w.:-]{1,80}$/i;
 
 /** Statuts upstream pour lesquels un autre modèle candidat vaut le coup. */
 const RETRIABLE_UPSTREAM = [402, 404, 429, 502, 503];
-
-/**
- * Palier -> liste de modèles candidats (essayés dans l'ordre).
- * Le nom du modèle reste côté serveur pour les paliers "produit"
- * (free/simple/complex) ; seul "custom" est piloté par le client.
- */
-function resolveModels(tier, customModel) {
-  if (tier === "custom") {
-    if (!ALLOW_CUSTOM_MODEL) return [];
-    const m = String(customModel || "").trim();
-    return CUSTOM_MODEL_RE.test(m) ? [m] : [];
-  }
-  if (tier === "free") {
-    return AI_MODEL_FREE.split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
-  }
-  if (tier === "complex") return [AI_MODEL_COMPLEX || AI_MODEL].filter(Boolean);
-  return [AI_MODEL].filter(Boolean); // "simple" (défaut)
-}
 
 // "*" allows any origin (dev). In production list your front origins, comma-separated.
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || "*")
@@ -91,7 +61,7 @@ function corsHeaders(origin) {
   if (!allow) return null; // origin not allowed
   return {
     "Access-Control-Allow-Origin": allow,
-    "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+    "Access-Control-Allow-Methods": "POST, PUT, DELETE, GET, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization, X-API-Key",
     "Access-Control-Max-Age": "86400",
     Vary: "Origin",
@@ -151,6 +121,27 @@ function readAuth(req) {
   return auth.accessToken || auth.apiKey ? auth : null;
 }
 
+async function authenticate(req, res, cors) {
+  const auth = readAuth(req);
+  if (!auth) {
+    json(res, 401, { ok: false, errorKey: 'missing_credentials' }, cors);
+    return null;
+  }
+  const me = await getMe(auth);
+  if (!me.ok) {
+    json(res, me.status === 0 ? 502 : me.status || 401,
+      { ok: false, state_message: me.errorKey || 'unauthorized' }, cors);
+    return null;
+  }
+  const profile = me.data?.user_profile ?? me.data ?? {};
+  const accountId = Number(profile.id);
+  if (!Number.isSafeInteger(accountId) || accountId <= 0) {
+    json(res, 502, { ok: false, errorKey: 'account_id_unavailable' }, cors);
+    return null;
+  }
+  return { auth, profile, accountId };
+}
+
 // Very small in-memory limiter (per user id). Enough to stop a runaway loop from
 // burning model credits; use a shared store if you run several instances.
 const hits = new Map();
@@ -167,15 +158,6 @@ function rateLimited(key) {
 /* ------------------------------ the SSE chat ------------------------------ */
 
 async function handleChat(req, res, cors) {
-  // Seule la clé du fournisseur est indispensable : le palier "free" a des
-  // modèles par défaut et "custom" reçoit le modèle du client.
-  if (!AI_API_KEY) {
-    return json(res, 503, { ok: false, errorKey: "ai_not_configured" }, cors);
-  }
-
-  const auth = readAuth(req);
-  if (!auth) return json(res, 401, { ok: false, errorKey: "missing_credentials" }, cors);
-
   let body;
   try {
     body = await readBody(req);
@@ -183,19 +165,11 @@ async function handleChat(req, res, cors) {
     return json(res, 413, { ok: false, errorKey: "payload_too_large" }, cors);
   }
 
-  // Validate the caller AND get the authoritative identity in one call.
-  const me = await getMe(auth);
-  if (!me.ok) {
-    // Let the caller's own refresh logic kick in (their axios interceptor retries
-    // on token_expired), instead of duplicating token refresh here.
-    return json(
-      res,
-      me.status === 0 ? 502 : me.status || 401,
-      { ok: false, state_message: me.errorKey || "unauthorized" },
-      cors,
-    );
-  }
-  const profile = me.data?.user_profile ?? me.data ?? {};
+  // Never trust an account id supplied by the browser: the provider key is
+  // selected using the authoritative identity returned by Magileads.
+  const caller = await authenticate(req, res, cors);
+  if (!caller) return;
+  const { auth, profile, accountId } = caller;
 
   if (rateLimited(String(profile.id ?? profile.email ?? "anon"))) {
     return json(res, 429, { ok: false, errorKey: "rate_limited" }, cors);
@@ -212,8 +186,15 @@ async function handleChat(req, res, cors) {
   if (!clientMessages.length) return json(res, 400, { ok: false, errorKey: "empty" }, cors);
 
   // The user-facing tier maps to real model(s) HERE.
+  const provider = body.provider ?? 'openrouter';
+  if (!MODEL_PROVIDERS.includes(provider)) {
+    return json(res, 400, { ok: false, errorKey: 'invalid_provider' }, cors);
+  }
   const tier = ["free", "simple", "complex", "custom"].includes(body.tier) ? body.tier : "simple";
-  const candidates = resolveModels(tier, body.model);
+  if (provider !== 'openrouter' && tier === 'free') {
+    return json(res, 400, { ok: false, errorKey: 'paid_provider_has_no_free_tier' }, cors);
+  }
+  const candidates = resolveModels(provider, tier, body.model);
   if (!candidates.length) {
     return json(
       res,
@@ -224,6 +205,22 @@ async function handleChat(req, res, cors) {
       },
       cors,
     );
+  }
+
+  let providerKey = AI_API_KEY;
+  if (provider === 'openrouter' && !providerKey) {
+    return json(res, 503, { ok: false, errorKey: 'ai_not_configured' }, cors);
+  }
+  if (provider !== 'openrouter') {
+    if (!providerCredentials.available) {
+      return json(res, 503, { ok: false, errorKey: 'credential_store_unavailable' }, cors);
+    }
+    try {
+      providerKey = await providerCredentials.get(accountId, provider);
+    } catch {
+      return json(res, 503, { ok: false, errorKey: 'credential_store_unavailable' }, cors);
+    }
+    if (!providerKey) return json(res, 412, { ok: false, errorKey: 'provider_key_missing' }, cors);
   }
 
   const convo = [{ role: "system", content: buildSystemPrompt(profile) }, ...clientMessages];
@@ -252,6 +249,7 @@ async function handleChat(req, res, cors) {
   let modelIdx = 0;
   let announced = false;
   let produced = false; // texte OU appel d'outil -> sert a detecter un modele muet
+  let failed = false;
 
   /** Ouvre le flux upstream, en basculant sur le candidat suivant si besoin. */
   async function openUpstream() {
@@ -260,18 +258,8 @@ async function handleChat(req, res, cors) {
       const timeout = setTimeout(() => ac.abort(), CALL_TIMEOUT_MS);
       let upstream;
       try {
-        upstream = await fetch(`${AI_API_URL}/chat/completions`, {
-          method: "POST",
-          headers: { Authorization: `Bearer ${AI_API_KEY}`, "Content-Type": "application/json" },
-          body: JSON.stringify({
-            model,
-            messages: convo,
-            tools: AI_TOOLS,
-            tool_choice: "auto",
-            stream: true,
-          }),
-          signal: ac.signal,
-        });
+        const request = upstreamRequest(provider, providerKey, model, convo, ac.signal);
+        upstream = await fetch(request.url, request.options);
       } catch {
         clearTimeout(timeout);
         return { error: "unreachable" };
@@ -280,8 +268,9 @@ async function handleChat(req, res, cors) {
 
       if (upstream.ok && upstream.body) return { upstream, model };
 
-      const detail = await upstream.text().catch(() => "");
-      console.error(`[ai] upstream ${upstream.status} (${model}): ${detail.slice(0, 300)}`);
+      await upstream.body?.cancel().catch(() => undefined);
+      // Provider errors can echo account metadata. Never log response bodies.
+      console.error(`[ai] upstream ${provider} ${upstream.status} (${model})`);
       // Modèle disparu / saturé / payant : on tente le candidat suivant s'il y en a.
       if (RETRIABLE_UPSTREAM.includes(upstream.status) && modelIdx + 1 < candidates.length) {
         modelIdx++;
@@ -297,11 +286,12 @@ async function handleChat(req, res, cors) {
       const opened = await openUpstream();
       if (opened.error) {
         if (!closed) {
-          sendText(
-            opened.error === "unreachable"
-              ? "\n\n_(Le service IA est injoignable pour le moment.)_"
-              : "\n\n_(Erreur du service IA — modèle indisponible ou saturé.)_",
-          );
+          failed = true;
+          sendEvent('assistant.error', {
+            code: provider !== 'openrouter' && [401, 403].includes(opened.status)
+              ? 'provider_key_invalid'
+              : 'provider_unavailable',
+          });
         }
         break;
       }
@@ -311,52 +301,13 @@ async function handleChat(req, res, cors) {
       // — où l'on peut avoir basculé — et "custom").
       if (!announced) {
         announced = true;
-        sendEvent("model.info", { tier, model, fallback: modelIdx > 0 });
+        sendEvent("model.info", { provider, tier, model, fallback: modelIdx > 0 });
       }
 
-      // Parse the provider's SSE: forward text deltas, accumulate tool calls.
-      const reader = upstream.body.getReader();
-      const dec = new TextDecoder();
-      let buf = "";
-      let assistantContent = "";
-      const toolCalls = [];
-
-      for (;;) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buf += dec.decode(value, { stream: true });
-        const lines = buf.split("\n");
-        buf = lines.pop() ?? "";
-        for (const line of lines) {
-          const l = line.trim();
-          if (!l.startsWith("data:")) continue;
-          const data = l.slice(5).trim();
-          if (!data || data === "[DONE]") continue;
-          let j;
-          try {
-            j = JSON.parse(data);
-          } catch {
-            continue;
-          }
-          const delta = j.choices?.[0]?.delta;
-          if (!delta) continue;
-          if (typeof delta.content === "string" && delta.content) {
-            assistantContent += delta.content;
-            produced = true;
-            sendText(delta.content);
-          }
-          for (const tc of delta.tool_calls ?? []) {
-            const idx = tc.index ?? 0;
-            if (!toolCalls[idx]) toolCalls[idx] = { id: "", name: "", args: "" };
-            const slot = toolCalls[idx];
-            if (tc.id) slot.id = tc.id;
-            if (tc.function?.name) slot.name = tc.function.name;
-            if (tc.function?.arguments) slot.args += tc.function.arguments;
-          }
-        }
-      }
-
-      const calls = toolCalls.filter((c) => c && c.name);
+      const { assistantContent, calls } = await readModelStream(upstream.body, provider, (delta) => {
+        produced = true;
+        sendText(delta);
+      });
       if (!calls.length) break; // the model produced its final answer
       produced = true;
 
@@ -406,7 +357,7 @@ async function handleChat(req, res, cors) {
     }
     // Certains modèles (préversions "stealth"…) répondent 200 sans rien émettre :
     // on le dit au lieu de fermer un flux vide.
-    if (!closed && !produced) {
+    if (!closed && !produced && !failed) {
       sendText(
         "_(Ce modèle n'a renvoyé aucune réponse. Essaie un autre modèle — certains modèles en préversion ne répondent pas.)_",
       );
@@ -422,6 +373,56 @@ async function handleChat(req, res, cors) {
 
 /* --------------------------------- routing -------------------------------- */
 
+async function handleProviderKeys(req, res, cors, provider) {
+  const caller = await authenticate(req, res, cors);
+  if (!caller) return;
+  const { accountId } = caller;
+
+  if (req.method === 'GET' && !provider) {
+    try {
+      const configured = providerCredentials.available
+        ? await providerCredentials.status(accountId)
+        : { openai: false, anthropic: false };
+      return json(res, 200, {
+        ok: true,
+        openrouter_available: Boolean(AI_API_KEY),
+        storage_available: providerCredentials.available,
+        configured,
+      }, cors);
+    } catch {
+      return json(res, 503, { ok: false, errorKey: 'credential_store_unavailable' }, cors);
+    }
+  }
+  if (!['openai', 'anthropic'].includes(provider)) {
+    return json(res, 404, { ok: false, errorKey: 'not_found' }, cors);
+  }
+  if (!providerCredentials.available) {
+    return json(res, 503, { ok: false, errorKey: 'credential_store_unavailable' }, cors);
+  }
+
+  if (req.method === 'PUT') {
+    let body;
+    try { body = await readBody(req); }
+    catch { return json(res, 413, { ok: false, errorKey: 'payload_too_large' }, cors); }
+    try {
+      await providerCredentials.set(accountId, provider, body.api_key);
+      return json(res, 200, { ok: true, configured: true }, cors);
+    } catch (error) {
+      return json(res, error.message === 'invalid_provider_key' ? 400 : 503,
+        { ok: false, errorKey: error.message === 'invalid_provider_key' ? error.message : 'credential_store_unavailable' }, cors);
+    }
+  }
+  if (req.method === 'DELETE') {
+    try {
+      await providerCredentials.remove(accountId, provider);
+      return json(res, 200, { ok: true, configured: false }, cors);
+    } catch {
+      return json(res, 503, { ok: false, errorKey: 'credential_store_unavailable' }, cors);
+    }
+  }
+  return json(res, 405, { ok: false, errorKey: 'method_not_allowed' }, cors);
+}
+
 const server = http.createServer(async (req, res) => {
   const origin = req.headers.origin;
   const cors = corsHeaders(origin);
@@ -435,7 +436,7 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
 
   if (req.method === "GET" && url.pathname === "/health") {
-    return json(res, 200, { ok: true, configured: Boolean(AI_API_KEY) }, cors);
+    return json(res, 200, { ok: true, configured: Boolean(AI_API_KEY) || providerCredentials.available }, cors);
   }
 
   if (req.method === "GET" && url.pathname === "/ai/meta") {
@@ -448,15 +449,24 @@ const server = http.createServer(async (req, res) => {
         createsList: CREATES_LIST,
         // Paliers réellement disponibles (l'UI peut s'y adapter).
         tiers: {
-          free: resolveModels("free").length > 0,
-          simple: resolveModels("simple").length > 0,
-          complex: resolveModels("complex").length > 0,
+          free: resolveModels('openrouter', "free").length > 0,
+          simple: resolveModels('openrouter', "simple").length > 0,
+          complex: resolveModels('openrouter', "complex").length > 0,
           custom: ALLOW_CUSTOM_MODEL,
         },
-        freeCandidates: resolveModels("free").length,
+        freeCandidates: resolveModels('openrouter', "free").length,
+        providers: MODEL_PROVIDERS,
       },
       cors,
     );
+  }
+
+  if (url.pathname === '/ai/provider-keys' && req.method === 'GET') {
+    return handleProviderKeys(req, res, cors, null);
+  }
+  const keyRoute = /^\/ai\/provider-keys\/(openai|anthropic)$/.exec(url.pathname);
+  if (keyRoute && ['PUT', 'DELETE'].includes(req.method)) {
+    return handleProviderKeys(req, res, cors, keyRoute[1]);
   }
 
   if (req.method === "POST" && url.pathname === "/ai/chat") {
@@ -468,7 +478,8 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, () => {
   console.log(`[ai-server] listening on http://localhost:${PORT}`);
-  console.log(`[ai-server] tiers -> free=${resolveModels("free").length} candidat(s) | simple=${AI_MODEL || "(unset)"} | complex=${AI_MODEL_COMPLEX || "(= simple)"} | custom=${ALLOW_CUSTOM_MODEL ? "autorise" : "desactive"}`);
-  if (!AI_API_KEY) console.warn("[ai-server] WARNING: AI_API_KEY non defini -> /ai/chat renvoie 503");
+  console.log(`[ai-server] tiers -> free=${resolveModels('openrouter', "free").length} candidat(s) | simple=${AI_MODEL || "(unset)"} | complex=${AI_MODEL_COMPLEX || "(= simple)"} | custom=${ALLOW_CUSTOM_MODEL ? "autorise" : "desactive"}`);
+  if (!AI_API_KEY) console.warn("[ai-server] NOTE: OpenRouter unavailable (AI_API_KEY not set)");
+  if (!providerCredentials.available) console.warn('[ai-server] NOTE: per-account provider keys unavailable (set AI_CREDENTIALS_KEY)');
   if (!AI_MODEL) console.warn("[ai-server] NOTE: AI_MODEL non defini -> les paliers simple/complex sont indisponibles");
 });

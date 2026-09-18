@@ -22,11 +22,20 @@ services:
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-*}
       RATE_LIMIT_PER_MIN: ${RATE_LIMIT_PER_MIN:-20}
       MAGILEADS_API_BASE: ${MAGILEADS_API_BASE:-https://app.api-magileads.net}
-      # Fournisseur du modèle (compatible OpenAI, avec function calling).
+      # OpenRouter reste le fournisseur partagé par défaut.
       AI_API_URL: ${AI_API_URL:-https://openrouter.ai/api/v1}
-      AI_API_KEY: ${AI_API_KEY:?AI_API_KEY est requis}
-      AI_MODEL: ${AI_MODEL:?AI_MODEL est requis}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-}
       AI_MODEL_COMPLEX: ${AI_MODEL_COMPLEX:-}
+      # Clés OpenAI/Claude par compte, chiffrées avec cette clé maître.
+      AI_CREDENTIALS_KEY: ${AI_CREDENTIALS_KEY:-}
+      AI_CREDENTIALS_FILE: /data/provider-keys.json
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.4-mini}
+      OPENAI_MODEL_COMPLEX: ${OPENAI_MODEL_COMPLEX:-gpt-5.4}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-haiku-4-5-20251001}
+      ANTHROPIC_MODEL_COMPLEX: ${ANTHROPIC_MODEL_COMPLEX:-claude-sonnet-5}
+    volumes:
+      - ai-credentials:/data
     healthcheck:
       test:
         - CMD
@@ -42,3 +51,6 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+volumes:
+  ai-credentials:
