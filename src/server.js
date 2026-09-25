@@ -56,16 +56,28 @@ const IMPORT_ONLY_TOOLS = new Set([
   'update_targeting', 'count_database_targeting', 'run_database_targeting', 'run_sales_navigator_targeting',
 ]);
 
-function explicitImportApproval(messages) {
+function explicitImportApproval(messages, submitted) {
   const users = messages.filter(message => message.role === 'user');
   if (users.length < 2 || !messages.slice(0, -1).some(message => message.role === 'assistant')) return null;
   const last = messages.at(-1);
   if (last?.role !== 'user') return null;
+  // The import card sends the chosen destination separately from its localized
+  // display text. Never infer an existing-list ID from a model response.
+  if (submitted && typeof submitted === 'object' && !Array.isArray(submitted)) {
+    const { list_name: name, contact_list_id: listId } = submitted;
+    if (typeof name === 'string' && name.trim() && name.trim().length <= 80 && listId == null) {
+      return { name: name.trim(), listId: null };
+    }
+    if (Number.isSafeInteger(listId) && listId > 0 && name == null) {
+      return { name: null, listId };
+    }
+    return null;
+  }
   const text = last.content.trim();
   if (!/^(?:(?:oui|ok|d'accord)[,!.\s]+)?(?:je\s+)?(?:valide\b|go\b|c['’]est bon\b|la cible me convient\b)/i.test(text)) return null;
   if (/^(?:je\s+)?valide\s+pas\b|^(?:non|pas maintenant)\b/i.test(text)) return null;
   const name = text.match(/\bliste\s+[«"]([^»"]+)[»"]/i)?.[1]?.trim() ?? null;
-  return { name };
+  return { name, listId: null };
 }
 
 /* --------------------------------- helpers -------------------------------- */
@@ -208,7 +220,10 @@ async function handleChat(req, res, cors) {
   const importMode = body.mode === 'import' || allMessages.find(message => message.role === 'user')?.content.startsWith(IMPORT_CONTEXT_PREFIX);
   const clientMessages = allMessages.slice(-MAX_MESSAGES);
   if (!clientMessages.length) return json(res, 400, { ok: false, errorKey: "empty" }, cors);
-  const approval = importMode ? explicitImportApproval(allMessages) : null;
+  const approval = importMode ? explicitImportApproval(allMessages, body.import_approval) : null;
+  if (body.import_approval != null && !approval) {
+    return json(res, 400, { ok: false, errorKey: 'invalid_import_approval' }, cors);
+  }
 
   // The user-facing tier maps to real model(s) HERE.
   const provider = body.provider ?? 'openrouter';
@@ -380,11 +395,16 @@ async function handleChat(req, res, cors) {
         } else {
           if (createsList) launchAttempted = true;
           let args = c.args;
-          if (importMode && createsList && approval?.name) {
+          if (importMode && createsList && approval) {
             try {
               const parsed = JSON.parse(c.args || '{}');
-              delete parsed.contact_list_id;
-              parsed.list_name = approval.name;
+              if (approval.listId != null) {
+                delete parsed.list_name;
+                parsed.contact_list_id = approval.listId;
+              } else if (approval.name) {
+                delete parsed.contact_list_id;
+                parsed.list_name = approval.name;
+              }
               args = JSON.stringify(parsed);
             } catch { /* executeTool will report invalid JSON */ }
           }
@@ -393,9 +413,11 @@ async function handleChat(req, res, cors) {
             status: 'running', creates_list: createsList,
           });
           result = await executeTool(c.name, args, auth, { profile });
+          let launched = false;
+          try { launched = Boolean(JSON.parse(result).list_id); } catch { /* tool returned an error */ }
           if (c.name !== 'update_targeting') sendEvent('tool.progress', {
             tool: c.name, label: TOOL_LABELS[c.name] || c.name.replace(/_/g, ' '),
-            status: 'completed', creates_list: createsList,
+            status: 'completed', creates_list: createsList && launched,
           });
         }
 
@@ -408,6 +430,14 @@ async function handleChat(req, res, cors) {
             }
           } catch { /* invalid tool output is never sent as criteria */ }
         }
+        if (importMode && c.name === 'count_database_targeting') {
+          try {
+            const preview = JSON.parse(result);
+            if (Number.isSafeInteger(preview.count) && preview.count >= 0) {
+              sendEvent('targeting.count', { count: preview.count });
+            }
+          } catch { /* failed previews cannot unlock validation */ }
+        }
 
         // The clickable LinkedIn account card is built from the REAL tool result
         // here (server-side) — never from the model's text, so it cannot invent
@@ -416,7 +446,9 @@ async function handleChat(req, res, cors) {
           try {
             const parsed = JSON.parse(result);
             if (Array.isArray(parsed.accounts) && parsed.accounts.length) {
-              sendEvent("linkedin.accounts", { accounts: parsed.accounts });
+              let salesNavigatorOnly = false;
+              try { salesNavigatorOnly = JSON.parse(c.args || '{}').sales_navigator_only === true; } catch { /* invalid args */ }
+              sendEvent("linkedin.accounts", { accounts: parsed.accounts, sales_navigator_only: salesNavigatorOnly });
             }
           } catch {
             /* ignore */

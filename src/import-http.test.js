@@ -10,6 +10,7 @@ test('import mode streams criteria, refuses extraction before approval, then lau
   let providerError;
   const upstream = http.createServer(async (req, res) => {
     if (req.url === '/users/me') return res.end(JSON.stringify({ state: true, user_profile: { id: 1, first_name: 'Iris' } }));
+    if (req.url === '/contact-lists/42') return res.end(JSON.stringify({ state: true, contact_list_profile: { id: 42, name: 'Liste existante' } }));
     let raw = ''; for await (const chunk of req) raw += chunk;
     try {
       if (req.url === '/targeting/google/generate-maps-search-urls') {
@@ -19,6 +20,10 @@ test('import mode streams criteria, refuses extraction before approval, then lau
       if (req.url === '/targeting/google/extract-maps-search') {
         extracts++;
         const body = JSON.parse(raw);
+        if (body.contact_list_id === 42) {
+          assert.equal(body.contact_list_name, null);
+          return res.end(JSON.stringify({ state: true, contact_list_id: 42 }));
+        }
         assert.equal(body.contact_list_name, 'Prospects Lyon');
         assert.equal(body.contact_list_id, null);
         return res.end(JSON.stringify({ state: true, contact_list_id: 70657 }));
@@ -57,10 +62,10 @@ test('import mode streams criteria, refuses extraction before approval, then lau
     env: { ...process.env, PORT: String(port), AI_API_KEY: 'provider-test', AI_MODEL: 'fixture', AI_API_URL: upstreamUrl, MAGILEADS_API_BASE: upstreamUrl },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
-  const chat = async (messages, mode) => {
+  const chat = async (messages, mode, importApproval) => {
     const response = await fetch(`http://127.0.0.1:${port}/ai/chat`, {
       method: 'POST', headers: { Authorization: 'Bearer caller-secret', 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...(mode ? { mode } : {}), messages }),
+      body: JSON.stringify({ ...(mode ? { mode } : {}), ...(importApproval ? { import_approval: importApproval } : {}), messages }),
     });
     assert.equal(response.status, 200);
     return response.text();
@@ -86,6 +91,12 @@ test('import mode streams criteria, refuses extraction before approval, then lau
     assert.match(after, /"kind":"lists","items":\[\{"id":70657,"name":"Prospects Lyon"\}\]/);
     assert.equal(generators, 1);
     assert.equal(extracts, 1);
+    const localized = [...first, { role: 'assistant', content: 'Cible : dentistes à Lyon. Validez ?' },
+      { role: 'user', content: 'The target works for me: add the results to “Liste existante” (ID 42) and launch the search.' }];
+    const existing = await chat(localized, 'import', { contact_list_id: 42 });
+    assert.match(existing, /"kind":"lists","items":\[\{"id":42,"name":"Liste existante"\}\]/);
+    assert.equal(generators, 2);
+    assert.equal(extracts, 2);
     if (providerError) throw providerError;
   } finally {
     child.kill();

@@ -70,7 +70,7 @@ export function buildSystemPrompt(profile, { mode = 'chat' } = {}) {
     'Pour LinkedIn, appelle ask_linkedin_account (sales_navigator_only:true pour Sales Navigator), montre uniquement les vrais comptes disponibles et attends le choix de l’utilisateur. ' +
     'Pour la base Magileads, construis les filtres exacts, appelle count_database_targeting et donne le compte trouvé AVANT de demander la validation. ' +
     'Présente ensuite la source et la cible en quelques lignes. ATTENDS un nouveau message de validation explicite (« valide », « go », « c’est bon » ou « La cible me convient… ») avant tout run_* ou autre outil qui crée ou alimente une liste, Google Maps compris. ' +
-    'Reprends exactement le nom de liste donné dans la validation. Le serveur bloque les mutations avant validation et limite à un seul lancement par réponse. ' +
+    'Reprends exactement le nom de liste donné dans la validation, ou l’ID de liste existante choisi. Le serveur bloque les mutations avant validation et limite à un seul lancement par réponse. ' +
     'Après lancement, résume brièvement les critères RÉELLEMENT appliqués depuis criteria_applied, la localisation résolue et les filtres ignorés avec leur raison. Si une exclusion demandée ne figure pas dans le payload de la source, annonce clairement qu’elle n’a pas été appliquée. Ne dis pas que des contacts sont déjà importés. ' +
     'Ne devine jamais de code Sales Navigator : les valeurs de secteur, d’effectif et de niveau sont vérifiées par le générateur d’URL. ' +
     'N’utilise pas run_operation en mode import.';

@@ -304,7 +304,7 @@ export const AI_TOOLS = [
     function: {
       name: "run_google_maps_targeting",
       description:
-        "Lance un ciblage Google Maps : recherche des établissements par activité + localisations et crée une NOUVELLE liste de contacts (extraction asynchrone, consomme des crédits). Utilise-le pour « cible/trouve des <activité> à <ville> ».",
+        "Lance un ciblage Google Maps : recherche des établissements par activité + localisations et crée ou alimente une liste de contacts (extraction asynchrone, consomme des crédits). Utilise-le pour « cible/trouve des <activité> à <ville> ».",
       parameters: {
         type: "object",
         properties: {
