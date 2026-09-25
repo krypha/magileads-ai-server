@@ -1,5 +1,9 @@
 import { sanitize, forbiddenOperation } from './assistant-policy.js';
 import { EXTENDED_TOOLS, executeExtended } from './operations.js';
+import {
+  countDatabase, hasPermission, normalizeTargeting, positiveId, resolveListTarget,
+  runDatabase, runSalesNavigator, usableLinkedInAccount,
+} from './import-targeting.js';
 /**
  * AI tools (OpenAI-compatible function schemas) + their executor.
  *
@@ -32,8 +36,91 @@ import {
   listPrmNurturings,
 } from "./magileads.js";
 
+const DATABASE_FILTER_SCHEMA = {
+  type: 'object',
+  properties: {
+    field: { type: 'string', enum: ['job_title', 'contact_location', 'company', 'company_size', 'activity', 'category', 'zip_code', 'naf_code', 'country', 'phone', 'linkedin_url', 'website', 'summary'] },
+    contains: { type: 'array', items: { type: 'string' } },
+    does_not_contain: { type: 'array', items: { type: 'string' } },
+    starts_with: { type: 'array', items: { type: 'string' } },
+    does_not_start_with: { type: 'array', items: { type: 'string' } },
+    ends_with: { type: 'array', items: { type: 'string' } },
+    does_not_end_with: { type: 'array', items: { type: 'string' } },
+    exact_match: { type: 'array', items: { type: 'string' } },
+    exists: { type: 'boolean' },
+  },
+  required: ['field'],
+  additionalProperties: false,
+};
+
 export const AI_TOOLS = [
   ...EXTENDED_TOOLS,
+  {
+    type: 'function',
+    function: {
+      name: 'update_targeting',
+      description: 'Mode import : publie les critères structurés dès que la cible évolue. Aucun appel Magileads, aucune création. À appeler au début de chaque tour import.',
+      parameters: {
+        type: 'object',
+        properties: {
+          source: { type: ['string', 'null'], enum: ['linkedin', 'sales_navigator', 'database', 'google_maps', null] },
+          job_titles: { type: 'array', items: { type: 'string' } },
+          seniority: { type: 'array', items: { type: 'string' } },
+          sectors: { type: 'array', items: { type: 'string' } },
+          company_size_min: { type: ['number', 'null'] },
+          company_size_max: { type: ['number', 'null'] },
+          locations: { type: 'array', items: { type: 'string' } },
+          companies: { type: 'array', items: { type: 'string' } },
+          activity: { type: ['string', 'null'] },
+          cities: { type: 'array', items: { type: 'string' } },
+          exclusions: { type: 'array', items: { type: 'string' } },
+          max_results: { type: ['number', 'null'] },
+        },
+        required: ['source'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'count_database_targeting',
+      description: 'Aperçu non mutatif du nombre de contacts de la base Magileads pour des filtres exacts. En mode import, affiche le compte AVANT la validation.',
+      parameters: {
+        type: 'object',
+        properties: { filters: { type: 'array', items: DATABASE_FILTER_SCHEMA } },
+        required: ['filters'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'run_database_targeting',
+      description: 'Lance une extraction de la base Magileads après validation. filters utilise le même schéma que count_database_targeting ; list_name OU contact_list_id.',
+      parameters: { type: 'object', properties: {
+        filters: { type: 'array', items: DATABASE_FILTER_SCHEMA },
+        list_name: { type: 'string' }, contact_list_id: { type: 'number' }, max_results: { type: 'number', description: 'Défaut 100, max 10000.' },
+      }, required: ['filters'] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'run_sales_navigator_targeting',
+      description: 'Lance une extraction Sales Navigator après validation. Secteurs, tranches et niveaux sont vérifiés dans l’URL générée. Nécessite un compte Sales Navigator valide et list_name OU contact_list_id.',
+      parameters: { type: 'object', properties: {
+        titles: { type: 'array', items: { type: 'string' } },
+        locations: { type: 'array', items: { type: 'string' }, description: 'Noms de zones en français ; résolus en ID par Magileads.' },
+        industries: { type: 'array', items: { type: 'string' }, description: 'Noms exacts de secteurs ou IDs du catalogue Magileads.' },
+        companies: { type: 'array', items: { type: 'string' } },
+        company_head_counts: { type: 'array', items: { type: 'string', enum: ['independant', '1-10', '11-50', '51-200', '201-500', '501-1000', '1001-5000', '5001-10000', '10001-above'] } },
+        seniority_levels: { type: 'array', items: { type: 'string', enum: ['in_training', 'entry_level', 'senior', 'strategic', 'entry_level_manager', 'experienced_manager', 'director', 'vice_president', 'cxo', 'owner_partner'] } },
+        linkedin_account_id: { type: 'number' }, list_name: { type: 'string' }, contact_list_id: { type: 'number' },
+        max_results: { type: 'number', description: 'Défaut 100, max 1000.' }, generate_email: { type: 'boolean', description: 'Défaut true.' },
+      }, required: ['linkedin_account_id'] },
+    },
+  },
   {
     type: "function",
     function: {
@@ -232,6 +319,7 @@ export const AI_TOOLS = [
           },
           max_results: { type: "number", description: "Nombre max de contacts (défaut 50, max 200)." },
           list_name: { type: "string", description: "Nom de la liste à créer (optionnel)." },
+          contact_list_id: { type: 'number', description: 'ID d’une liste existante à alimenter, à la place de list_name.' },
         },
         required: ["search"],
       },
@@ -243,7 +331,7 @@ export const AI_TOOLS = [
       name: "ask_linkedin_account",
       description:
         "Affiche à l'utilisateur une carte cliquable des comptes LinkedIn UTILISABLES (valides, sans checkpoint) pour qu'il en choisisse un, AVANT un ciblage LinkedIn. N'invente jamais de compte : appelle cet outil, il affiche les vrais comptes. Ne liste pas les comptes toi-même.",
-      parameters: { type: "object", properties: {} },
+      parameters: { type: "object", properties: { sales_navigator_only: { type: 'boolean', description: 'true pour ne montrer que les comptes Sales Navigator valides.' } } },
     },
   },
   {
@@ -259,7 +347,8 @@ export const AI_TOOLS = [
             type: "number",
             description: "Id du compte LinkedIn valide choisi par l'utilisateur.",
           },
-          list_name: { type: "string", description: "Nom de la liste à créer." },
+          list_name: { type: "string", description: "Nom de la liste à créer ; exclusif avec contact_list_id." },
+          contact_list_id: { type: 'number', description: 'ID d’une liste existante à alimenter, à la place de list_name.' },
           title: {
             type: "string",
             description: "Intitulé de poste ciblé, ex. « DAF », « Head of Growth » (optionnel).",
@@ -272,7 +361,7 @@ export const AI_TOOLS = [
           company: { type: "string", description: "Entreprise actuelle ciblée (optionnel)." },
           max_results: { type: "number", description: "Nombre max de contacts (défaut 100, max 1000)." },
         },
-        required: ["linkedin_account_id", "list_name"],
+        required: ["linkedin_account_id"],
       },
     },
   },
@@ -299,12 +388,16 @@ export const TOOL_LABELS = {
   get_prm_contact: "Fiche prospect",
   list_prm_nurturings: "Séquences de nurturing",
   run_google_maps_targeting: "Ciblage Google Maps",
+  update_targeting: 'Mise à jour de la cible',
+  count_database_targeting: 'Comptage',
+  run_database_targeting: 'Base Magileads',
+  run_sales_navigator_targeting: 'Ciblage Sales Navigator',
   ask_linkedin_account: "Comptes LinkedIn",
   run_linkedin_targeting: "Ciblage LinkedIn",
 };
 
 /** Tools that create/fill a contact list → the front can watch for completion. */
-export const CREATES_LIST = ["run_google_maps_targeting", "run_linkedin_targeting"];
+export const CREATES_LIST = ["run_google_maps_targeting", "run_linkedin_targeting", "run_sales_navigator_targeting", "run_database_targeting"];
 
 /* --------------------------------- helpers -------------------------------- */
 
@@ -364,7 +457,7 @@ function contactRows(env) {
  * @param {string} argsRaw raw JSON arguments produced by the model
  * @param {{accessToken?:string, apiKey?:string}} auth the CALLER's credentials
  */
-export async function executeTool(name, argsRaw, auth) {
+export async function executeTool(name, argsRaw, auth, context = {}) {
   if (forbiddenOperation(name) || !AI_TOOLS.some(tool => tool.function.name === name)) return cap({ error: "operation_not_allowed" });
   let args = {};
   try {
@@ -375,6 +468,16 @@ export async function executeTool(name, argsRaw, auth) {
 
   try {
     if (!args || typeof args !== "object" || Array.isArray(args)) return cap({ error: "invalid_arguments" });
+    if (name === 'update_targeting') return cap(normalizeTargeting(args));
+    if (name === 'count_database_targeting' || name === 'run_database_targeting' || name === 'run_sales_navigator_targeting') {
+      const me = context.profile ? { ok: true, data: { user_profile: context.profile } } : await getMe(auth);
+      if (!me.ok) return cap({ error: 'profil indisponible' });
+      const profile = me.data?.user_profile ?? me.data;
+      const result = name === 'count_database_targeting' ? await countDatabase(args, auth, profile)
+        : name === 'run_database_targeting' ? await runDatabase(args, auth, profile)
+          : await runSalesNavigator(args, auth, profile);
+      return cap(result, result.list_id ? 32000 : 12000);
+    }
     const extended = await executeExtended(name, args, auth);
     if (extended !== null) return cap(extended, name === "discover_operations" ? 50000 : 12000);
     switch (name) {
@@ -666,11 +769,10 @@ export async function executeTool(name, argsRaw, auth) {
         const locations = Array.isArray(args.locations)
           ? args.locations.filter((x) => typeof x === "string").slice(0, 10)
           : undefined;
-        const maxResults = Math.min(Math.max(Number(args.max_results) || 50, 1), 200);
-        const listName =
-          typeof args.list_name === "string" && args.list_name.trim()
-            ? args.list_name.trim().slice(0, 80)
-            : `Ciblage — ${search}`.slice(0, 80);
+        const maxResults = Math.min(Math.max(Math.trunc(Number(args.max_results)) || 50, 1), 200);
+        const target = await resolveListTarget({ ...args, list_name: args.list_name ||
+          (args.contact_list_id == null ? `Ciblage — ${search}` : undefined) }, auth);
+        if (target.error) return cap(target);
         const gen = await generateGoogleMapsUrls(auth, {
           search,
           locations,
@@ -681,29 +783,41 @@ export async function executeTool(name, argsRaw, auth) {
         const ext = await extractGoogleMaps(auth, {
           google_maps_search_urls: urls.slice(0, 10),
           max_results: maxResults,
-          contact_list_name: listName,
+          ...target.payload,
         });
-        if (!ext.ok || !ext.data?.contact_list_id) return cap({ error: "lancement de l'extraction échoué" });
+        const resultId = positiveId(ext.data?.contact_list_id) ?? (ext.ok ? target.id : null);
+        if (!ext.ok || !resultId) return cap({
+          error: target.id ? 'Google Maps n’a pas accepté la liste existante ; aucune nouvelle liste de remplacement n’a été créée.' : "lancement de l'extraction échoué",
+          status_code: ext.status,
+        });
         return cap({
           status: "extraction lancée",
-          list_id: ext.data.contact_list_id,
-          list_name: listName,
-          max_results: maxResults,
+          list_id: resultId,
+          list_name: target.name,
+          criteria_applied: { activity: search, locations_requested: locations ?? [], google_maps_search_urls: urls.slice(0, 10), max_results: maxResults, ignored_filters: [] },
           note: "Extraction asynchrone : la liste se remplit en arrière-plan et l'utilisateur sera notifié à la fin. Ne PAS re-lancer.",
         });
       }
 
       case "ask_linkedin_account": {
+        const salesOnly = args.sales_navigator_only === true;
+        if (salesOnly) {
+          const me = context.profile ? { ok: true, data: { user_profile: context.profile } } : await getMe(auth);
+          if (!me.ok || !hasPermission(me.data?.user_profile ?? me.data, 'accessSearchAI')) {
+            return cap({ accounts: [], note: 'Recherche Sales Navigator non autorisée pour ce compte.' });
+          }
+        }
         const r = await listLinkedinAccounts(auth);
         if (!r.ok || !r.data) return cap({ error: "comptes LinkedIn indisponibles" });
         // Usable = valid AND no pending checkpoint (a checkpoint account can't extract).
         const usable = (r.data.linkedin_accounts_list ?? [])
-          .filter((a) => a.is_valid === true && a.checkpoint_required !== true)
+          .filter((a) => a.is_valid === true && a.checkpoint_required !== true &&
+            (!salesOnly || a.is_sales_navigator_account === true))
           .map((a) => ({ id: a.id, name: a.name || a.username || `#${a.id}`, username: a.username }));
         if (!usable.length) {
           return cap({
             accounts: [],
-            note: "Aucun compte LinkedIn valide et sans checkpoint. Dis à l'utilisateur de connecter/valider un compte dans Comptes LinkedIn.",
+            note: salesOnly ? 'Aucun compte Sales Navigator valide et sans checkpoint.' : "Aucun compte LinkedIn valide et sans checkpoint. Dis à l'utilisateur de connecter/valider un compte dans Comptes LinkedIn.",
           });
         }
         // The SERVER turns THIS real list into the clickable card (never the model's text).
@@ -718,12 +832,11 @@ export async function executeTool(name, argsRaw, auth) {
         if (!Number.isFinite(accountId) || accountId <= 0) {
           return cap({ error: "linkedin_account_id manquant" });
         }
-        const listName =
-          typeof args.list_name === "string" && args.list_name.trim()
-            ? args.list_name.trim().slice(0, 80)
-            : "";
-        if (!listName) return cap({ error: "list_name manquant" });
-        const maxResults = Math.min(Math.max(Number(args.max_results) || 100, 1), 1000);
+        const account = await usableLinkedInAccount(auth, accountId);
+        if (account.error) return cap(account);
+        const target = await resolveListTarget(args, auth);
+        if (target.error) return cap(target);
+        const maxResults = Math.min(Math.max(Math.trunc(Number(args.max_results)) || 100, 1), 1000);
 
         // The location API is FRENCH-locale and returns fuzzy GLOBAL matches, so pick
         // the BEST one (exact name, else the broadest = fewest commas) — never blindly
@@ -764,23 +877,27 @@ export async function executeTool(name, argsRaw, auth) {
         if (!url) return cap({ error: "génération de l'URL de recherche LinkedIn échouée" });
         const ext = await linkedinExtract(auth, "extract-peoples-search", {
           linkedin_account_id: accountId,
-          contact_list_name: listName,
+          ...target.payload,
           max_results: maxResults,
           generate_email: true,
           linkedin_people_search_url: url,
         });
-        if (!ext.ok || !ext.data?.contact_list_id) {
+        const resultId = positiveId(ext.data?.contact_list_id) ?? (ext.ok ? target.id : null);
+        if (!ext.ok || !resultId) {
           return cap({ error: "lancement de l'extraction LinkedIn échoué" });
         }
         return cap({
           status: "extraction lancée",
-          list_id: ext.data.contact_list_id,
-          list_name: listName,
-          criteria: {
+          list_id: resultId,
+          list_name: target.name,
+          criteria_applied: {
             title: args.title,
             location_requested: args.location,
             location_used: resolvedLocation ?? null,
             company: args.company,
+            linkedin_account_id: accountId,
+            max_results: maxResults,
+            ignored_filters: [],
           },
           max_results: maxResults,
           note: "Extraction LinkedIn asynchrone : la liste se remplit en arrière-plan, l'utilisateur sera notifié à la fin. Indique dans ton résumé la localisation RÉELLEMENT utilisée (location_used). Ne PAS re-lancer.",

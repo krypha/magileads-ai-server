@@ -31,13 +31,13 @@ export function resolveModels(provider, tier, customModel) {
 }
 
 /** Fixed provider hosts. A browser cannot supply a URL or route a key elsewhere. */
-export function upstreamRequest(provider, apiKey, model, conversation, signal) {
+export function upstreamRequest(provider, apiKey, model, conversation, signal, { tools = AI_TOOLS, toolChoice = 'auto' } = {}) {
   return {
     url: `${URLS[provider]}/chat/completions`,
     options: {
       method: 'POST',
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, messages: conversation, tools: AI_TOOLS, tool_choice: 'auto', stream: true }),
+      body: JSON.stringify({ model, messages: conversation, tools, tool_choice: toolChoice, stream: true }),
       signal,
     },
   };

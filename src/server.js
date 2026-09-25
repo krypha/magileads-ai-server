@@ -22,7 +22,7 @@ import { cardsForTool, changesData } from './cards.js';
 
 import http from "node:http";
 import { getMe, listOpenAiIntegrations } from "./magileads.js";
-import { TOOL_LABELS, CREATES_LIST, executeTool } from "./tools.js";
+import { AI_TOOLS, TOOL_LABELS, CREATES_LIST, executeTool } from "./tools.js";
 import { buildSystemPrompt } from "./prompt.js";
 import { MODEL_PROVIDERS, readModelStream, resolveModels, upstreamRequest } from './model-providers.js';
 
@@ -47,6 +47,26 @@ const MAX_ROUNDS = 6; // tool round-trips before we stop looping
 const CALL_TIMEOUT_MS = 120_000;
 const MAX_BODY_BYTES = 1_000_000;
 const RATE_LIMIT_PER_MIN = Number(process.env.RATE_LIMIT_PER_MIN) || 20;
+const IMPORT_CONTEXT_PREFIX = '[Contexte : je suis sur la page de création de liste';
+const IMPORT_READ_TOOLS = new Set([
+  'update_targeting', 'count_database_targeting', 'ask_linkedin_account',
+  'list_contact_lists', 'get_contact_list', 'list_linkedin_accounts', 'get_account_overview',
+]);
+const IMPORT_ONLY_TOOLS = new Set([
+  'update_targeting', 'count_database_targeting', 'run_database_targeting', 'run_sales_navigator_targeting',
+]);
+
+function explicitImportApproval(messages) {
+  const users = messages.filter(message => message.role === 'user');
+  if (users.length < 2 || !messages.slice(0, -1).some(message => message.role === 'assistant')) return null;
+  const last = messages.at(-1);
+  if (last?.role !== 'user') return null;
+  const text = last.content.trim();
+  if (!/^(?:(?:oui|ok|d'accord)[,!.\s]+)?(?:je\s+)?(?:valide\b|go\b|c['’]est bon\b|la cible me convient\b)/i.test(text)) return null;
+  if (/^(?:je\s+)?valide\s+pas\b|^(?:non|pas maintenant)\b/i.test(text)) return null;
+  const name = text.match(/\bliste\s+[«"]([^»"]+)[»"]/i)?.[1]?.trim() ?? null;
+  return { name };
+}
 
 /* --------------------------------- helpers -------------------------------- */
 
@@ -170,19 +190,25 @@ async function handleChat(req, res, cors) {
   if (!caller) return;
   const { auth, profile, accountId } = caller;
 
+  if (body.mode != null && body.mode !== 'chat' && body.mode !== 'import') {
+    return json(res, 400, { ok: false, errorKey: 'invalid_mode' }, cors);
+  }
+
   if (rateLimited(String(accountId))) {
     return json(res, 429, { ok: false, errorKey: "rate_limited" }, cors);
   }
 
   // Accept ONLY user/assistant turns, projected to {role, content}: a client must
   // never be able to smuggle a system/tool turn and override the instructions.
-  const clientMessages = (Array.isArray(body.messages) ? body.messages : [])
+  const allMessages = (Array.isArray(body.messages) ? body.messages : [])
     .filter(
       (m) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string",
     )
-    .slice(-MAX_MESSAGES)
     .map((m) => ({ role: m.role, content: m.content.slice(0, MAX_CONTENT) }));
+  const importMode = body.mode === 'import' || allMessages.find(message => message.role === 'user')?.content.startsWith(IMPORT_CONTEXT_PREFIX);
+  const clientMessages = allMessages.slice(-MAX_MESSAGES);
   if (!clientMessages.length) return json(res, 400, { ok: false, errorKey: "empty" }, cors);
+  const approval = importMode ? explicitImportApproval(allMessages) : null;
 
   // The user-facing tier maps to real model(s) HERE.
   const provider = body.provider ?? 'openrouter';
@@ -229,7 +255,7 @@ async function handleChat(req, res, cors) {
     return json(res, 503, { ok: false, errorKey: 'ai_not_configured' }, cors);
   }
 
-  const convo = [{ role: "system", content: buildSystemPrompt(profile) }, ...clientMessages];
+  const convo = [{ role: "system", content: buildSystemPrompt(profile, { mode: importMode ? 'import' : 'chat' }) }, ...clientMessages];
 
   res.writeHead(200, {
     "Content-Type": "text/event-stream; charset=utf-8",
@@ -256,15 +282,24 @@ async function handleChat(req, res, cors) {
   let announced = false;
   let produced = false; // texte OU appel d'outil -> sert a detecter un modele muet
   let failed = false;
+  let launchAttempted = false;
+  let targetingReady = false;
 
   /** Ouvre le flux upstream, en basculant sur le candidat suivant si besoin. */
-  async function openUpstream() {
+  async function openUpstream(round) {
     while (modelIdx < candidates.length) {
       const model = candidates[modelIdx];
       const timeout = setTimeout(() => ac.abort(), CALL_TIMEOUT_MS);
       let upstream;
       try {
-        const request = upstreamRequest(provider, providerKey, model, convo, ac.signal);
+        const availableTools = !importMode
+          ? AI_TOOLS.filter(tool => !IMPORT_ONLY_TOOLS.has(tool.function.name))
+          : AI_TOOLS.filter(tool => IMPORT_READ_TOOLS.has(tool.function.name) ||
+            (approval && targetingReady && !launchAttempted && CREATES_LIST.includes(tool.function.name)));
+        const toolChoice = importMode && round === 0
+          ? { type: 'function', function: { name: 'update_targeting' } }
+          : 'auto';
+        const request = upstreamRequest(provider, providerKey, model, convo, ac.signal, { tools: availableTools, toolChoice });
         upstream = await fetch(request.url, request.options);
       } catch {
         clearTimeout(timeout);
@@ -289,7 +324,7 @@ async function handleChat(req, res, cors) {
 
   try {
     for (let round = 0; round < MAX_ROUNDS && !closed; round++) {
-      const opened = await openUpstream();
+      const opened = await openUpstream(round);
       if (opened.error) {
         if (!closed) {
           failed = true;
@@ -314,6 +349,11 @@ async function handleChat(req, res, cors) {
         produced = true;
         sendText(delta);
       });
+      if (importMode && round === 0 && !calls.some(call => call.name === 'update_targeting')) {
+        failed = true;
+        sendEvent('assistant.error', { code: 'targeting_update_missing' });
+        break;
+      }
       if (!calls.length) break; // the model produced its final answer
       produced = true;
 
@@ -329,19 +369,45 @@ async function handleChat(req, res, cors) {
 
       for (const c of calls) {
         if (closed) break;
-        sendEvent("tool.progress", {
-          tool: c.name,
-          label: TOOL_LABELS[c.name] || c.name.replace(/_/g, " "),
-          status: "running",
-          creates_list: CREATES_LIST.includes(c.name),
-        });
-        const result = await executeTool(c.name, c.args, auth);
-        sendEvent("tool.progress", {
-          tool: c.name,
-          label: TOOL_LABELS[c.name] || c.name.replace(/_/g, " "),
-          status: "completed",
-          creates_list: CREATES_LIST.includes(c.name),
-        });
+        const createsList = CREATES_LIST.includes(c.name);
+        let result;
+        const permitted = !importMode ? !IMPORT_ONLY_TOOLS.has(c.name)
+          : IMPORT_READ_TOOLS.has(c.name) || (approval && targetingReady && createsList && !launchAttempted);
+        if (!permitted) {
+          result = JSON.stringify({ error: createsList
+            ? !approval ? 'validation_explicitement_requise' : !targetingReady ? 'cible_incomplete' : 'lancement_deja_effectue'
+            : 'outil_indisponible_pour_ce_mode' });
+        } else {
+          if (createsList) launchAttempted = true;
+          let args = c.args;
+          if (importMode && createsList && approval?.name) {
+            try {
+              const parsed = JSON.parse(c.args || '{}');
+              delete parsed.contact_list_id;
+              parsed.list_name = approval.name;
+              args = JSON.stringify(parsed);
+            } catch { /* executeTool will report invalid JSON */ }
+          }
+          if (c.name !== 'update_targeting') sendEvent('tool.progress', {
+            tool: c.name, label: TOOL_LABELS[c.name] || c.name.replace(/_/g, ' '),
+            status: 'running', creates_list: createsList,
+          });
+          result = await executeTool(c.name, args, auth, { profile });
+          if (c.name !== 'update_targeting') sendEvent('tool.progress', {
+            tool: c.name, label: TOOL_LABELS[c.name] || c.name.replace(/_/g, ' '),
+            status: 'completed', creates_list: createsList,
+          });
+        }
+
+        if (importMode && c.name === 'update_targeting') {
+          try {
+            const criteria = JSON.parse(result);
+            if (!criteria.error) {
+              targetingReady = criteria.ready_to_launch === true;
+              sendEvent('targeting.criteria', criteria);
+            }
+          } catch { /* invalid tool output is never sent as criteria */ }
+        }
 
         // The clickable LinkedIn account card is built from the REAL tool result
         // here (server-side) — never from the model's text, so it cannot invent

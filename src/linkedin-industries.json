@@ -1,0 +1,1734 @@
+{
+  "1": {
+    "fr": "Fabrication pour l'aérospatiale et la défense",
+    "en": "Defense and Space Manufacturing"
+  },
+  "3": {
+    "fr": "Fabrication d'ordinateurs et d'équipements périphériques",
+    "en": "Computer Hardware Manufacturing"
+  },
+  "4": {
+    "fr": "Développement de logiciels",
+    "en": "Software Development"
+  },
+  "5": {
+    "fr": "Produits de réseaux informatiques",
+    "en": "Computer Networking Products"
+  },
+  "6": {
+    "fr": "Technologie, information et Internet",
+    "en": "Technology, Information and Internet"
+  },
+  "7": {
+    "fr": "Fabrication de semi-conducteurs",
+    "en": "Semiconductor Manufacturing"
+  },
+  "8": {
+    "fr": "Télécommunications",
+    "en": "Telecommunications"
+  },
+  "9": {
+    "fr": "Cabinets d'avocats",
+    "en": "Law Practice"
+  },
+  "10": {
+    "fr": "Services juridiques",
+    "en": "Legal Services"
+  },
+  "11": {
+    "fr": "Services et conseil aux entreprises",
+    "en": "Business Consulting and Services"
+  },
+  "12": {
+    "fr": "Recherche en biotechnologie",
+    "en": "Biotechnology Research"
+  },
+  "13": {
+    "fr": "Cabinets médicaux",
+    "en": "Medical Practices"
+  },
+  "14": {
+    "fr": "Hôpitaux et services de santé",
+    "en": "Hospitals and Health Care"
+  },
+  "15": {
+    "fr": "Fabrication de produits pharmaceutiques",
+    "en": "Pharmaceutical Manufacturing"
+  },
+  "16": {
+    "fr": "Services vétérinaires",
+    "en": "Veterinary Services"
+  },
+  "17": {
+    "fr": "Fabrication d'équipements médicaux",
+    "en": "Medical Equipment Manufacturing"
+  },
+  "18": {
+    "fr": "Fabrication de parfums et de produits pour la toilette",
+    "en": "Personal Care Product Manufacturing"
+  },
+  "19": {
+    "fr": "Commerce de détail d'habillement et d'accessoires de mode",
+    "en": "Retail Apparel and Fashion"
+  },
+  "20": {
+    "fr": "Fabrication d'articles de sport",
+    "en": "Sporting Goods Manufacturing"
+  },
+  "21": {
+    "fr": "Fabrication de tabac",
+    "en": "Tobacco Manufacturing"
+  },
+  "22": {
+    "fr": "Commerce de détail alimentaire",
+    "en": "Retail Groceries"
+  },
+  "23": {
+    "fr": "Fabrication de produits alimentaires et boissons",
+    "en": "Food and Beverage Manufacturing"
+  },
+  "24": {
+    "fr": "Fabrication de produits informatiques et électroniques",
+    "en": "Computers and Electronics Manufacturing"
+  },
+  "25": {
+    "fr": "Industrie manufacturière",
+    "en": "Manufacturing"
+  },
+  "26": {
+    "fr": "Fabrication de meubles et d'articles d'ameublement",
+    "en": "Furniture and Home Furnishings Manufacturing"
+  },
+  "27": {
+    "fr": "Commerce de détail",
+    "en": "Retail"
+  },
+  "28": {
+    "fr": "Arts, spectacles et activités récréatives",
+    "en": "Entertainment Providers"
+  },
+  "29": {
+    "fr": "Salles de jeux d'argent et casinos",
+    "en": "Gambling Facilities and Casinos"
+  },
+  "30": {
+    "fr": "Organisation de voyages",
+    "en": "Travel Arrangements"
+  },
+  "31": {
+    "fr": "Hôtellerie",
+    "en": "Hospitality"
+  },
+  "32": {
+    "fr": "Restaurants",
+    "en": "Restaurants"
+  },
+  "33": {
+    "fr": "Activités liées au sport",
+    "en": "Spectator Sports"
+  },
+  "34": {
+    "fr": "Services de restauration",
+    "en": "Food and Beverage Services"
+  },
+  "35": {
+    "fr": "Films, vidéos et son",
+    "en": "Movies, Videos, and Sound"
+  },
+  "36": {
+    "fr": "Production et distribution de médias audiovisuels",
+    "en": "Broadcast Media Production and Distribution"
+  },
+  "37": {
+    "fr": "Musées, sites historiques et zoos",
+    "en": "Museums, Historical Sites, and Zoos"
+  },
+  "38": {
+    "fr": "Artistes et écrivains",
+    "en": "Artists and Writers"
+  },
+  "39": {
+    "fr": "Arts du spectacle vivant",
+    "en": "Performing Arts"
+  },
+  "40": {
+    "fr": "Installations sportives, récréatives et de loisirs",
+    "en": "Recreational Facilities"
+  },
+  "41": {
+    "fr": "Services bancaires",
+    "en": "Banking"
+  },
+  "42": {
+    "fr": "Assurances",
+    "en": "Insurance"
+  },
+  "43": {
+    "fr": "Services financiers",
+    "en": "Financial Services"
+  },
+  "44": {
+    "fr": "Immobilier",
+    "en": "Real Estate"
+  },
+  "45": {
+    "fr": "Banques d'investissement",
+    "en": "Investment Banking"
+  },
+  "46": {
+    "fr": "Gestion des investissements",
+    "en": "Investment Management"
+  },
+  "47": {
+    "fr": "Comptabilité",
+    "en": "Accounting"
+  },
+  "48": {
+    "fr": "Construction",
+    "en": "Construction"
+  },
+  "49": {
+    "fr": "Commerce de gros de matériaux de construction",
+    "en": "Wholesale Building Materials"
+  },
+  "50": {
+    "fr": "Activités d'architecture",
+    "en": "Architecture and Planning"
+  },
+  "51": {
+    "fr": "Génie civil",
+    "en": "Civil Engineering"
+  },
+  "52": {
+    "fr": "Fabrication de composants pour l'industrie aéronautique et aérospatiale",
+    "en": "Aviation and Aerospace Component Manufacturing"
+  },
+  "53": {
+    "fr": "Fabrication de véhicules automobiles",
+    "en": "Motor Vehicle Manufacturing"
+  },
+  "54": {
+    "fr": "Fabrication de produits chimiques",
+    "en": "Chemical Manufacturing"
+  },
+  "55": {
+    "fr": "Fabrication de machines",
+    "en": "Machinery Manufacturing"
+  },
+  "56": {
+    "fr": "Exploitation minière",
+    "en": "Mining"
+  },
+  "57": {
+    "fr": "Industrie pétrolière et gazière",
+    "en": "Oil and Gas"
+  },
+  "58": {
+    "fr": "Construction navale",
+    "en": "Shipbuilding"
+  },
+  "59": {
+    "fr": "Services publics de distribution",
+    "en": "Utilities"
+  },
+  "60": {
+    "fr": "Fabrication de textiles",
+    "en": "Textile Manufacturing"
+  },
+  "61": {
+    "fr": "Fabrication de papier et de produits en papier",
+    "en": "Paper and Forest Product Manufacturing"
+  },
+  "62": {
+    "fr": "Construction de matériel ferroviaire",
+    "en": "Railroad Equipment Manufacturing"
+  },
+  "63": {
+    "fr": "Agriculture",
+    "en": "Farming"
+  },
+  "64": {
+    "fr": "Élevage bovin",
+    "en": "Ranching"
+  },
+  "65": {
+    "fr": "Fabrication de produits laitiers",
+    "en": "Dairy Product Manufacturing"
+  },
+  "66": {
+    "fr": "Pêche",
+    "en": "Fisheries"
+  },
+  "67": {
+    "fr": "Enseignement primaire et secondaire",
+    "en": "Primary and Secondary Education"
+  },
+  "68": {
+    "fr": "Enseignement supérieur",
+    "en": "Higher Education"
+  },
+  "69": {
+    "fr": "Programmes d'administration de l'éducation",
+    "en": "Education Administration Programs"
+  },
+  "70": {
+    "fr": "Services de recherche",
+    "en": "Research Services"
+  },
+  "71": {
+    "fr": "Forces armées",
+    "en": "Armed Forces"
+  },
+  "72": {
+    "fr": "Services législatifs",
+    "en": "Legislative Offices"
+  },
+  "73": {
+    "fr": "Services d'administration de la justice",
+    "en": "Administration of Justice"
+  },
+  "74": {
+    "fr": "Affaires étrangères",
+    "en": "International Affairs"
+  },
+  "75": {
+    "fr": "Administration publique",
+    "en": "Government Administration"
+  },
+  "76": {
+    "fr": "Services exécutifs",
+    "en": "Executive Offices"
+  },
+  "77": {
+    "fr": "Maintien de l'ordre",
+    "en": "Law Enforcement"
+  },
+  "78": {
+    "fr": "Sécurité civile",
+    "en": "Public Safety"
+  },
+  "79": {
+    "fr": "Services publics généraux",
+    "en": "Public Policy Offices"
+  },
+  "80": {
+    "fr": "Services de publicité",
+    "en": "Advertising Services"
+  },
+  "81": {
+    "fr": "Édition de journaux",
+    "en": "Newspaper Publishing"
+  },
+  "82": {
+    "fr": "Édition de livres et périodiques",
+    "en": "Book and Periodical Publishing"
+  },
+  "83": {
+    "fr": "Services d'impression",
+    "en": "Printing Services"
+  },
+  "84": {
+    "fr": "Services d'information",
+    "en": "Information Services"
+  },
+  "85": {
+    "fr": "Bibliothèques",
+    "en": "Libraries"
+  },
+  "86": {
+    "fr": "Services de conseil en environnement",
+    "en": "Environmental Services"
+  },
+  "87": {
+    "fr": "Transports de fret et de colis",
+    "en": "Freight and Package Transportation"
+  },
+  "88": {
+    "fr": "Services à la personne",
+    "en": "Individual and Family Services"
+  },
+  "89": {
+    "fr": "Institutions religieuses",
+    "en": "Religious Institutions"
+  },
+  "90": {
+    "fr": "Organisations civiques et sociales",
+    "en": "Civic and Social Organizations"
+  },
+  "91": {
+    "fr": "Services aux consommateurs",
+    "en": "Consumer Services"
+  },
+  "92": {
+    "fr": "Transports routiers de fret",
+    "en": "Truck Transportation"
+  },
+  "93": {
+    "fr": "Entreposage et stockage",
+    "en": "Warehousing and Storage"
+  },
+  "94": {
+    "fr": "Transport aérien",
+    "en": "Airlines and Aviation"
+  },
+  "95": {
+    "fr": "Transport maritime",
+    "en": "Maritime Transportation"
+  },
+  "96": {
+    "fr": "Services et conseil en informatique",
+    "en": "IT Services and IT Consulting"
+  },
+  "97": {
+    "fr": "Études de marché",
+    "en": "Market Research"
+  },
+  "98": {
+    "fr": "Services de relations publiques et communication",
+    "en": "Public Relations and Communications Services"
+  },
+  "99": {
+    "fr": "Services de design",
+    "en": "Design Services"
+  },
+  "100": {
+    "fr": "Organisations à but non lucratif",
+    "en": "Non-profit Organizations"
+  },
+  "101": {
+    "fr": "Collecte de fonds",
+    "en": "Fundraising"
+  },
+  "102": {
+    "fr": "Services de gestion stratégique",
+    "en": "Strategic Management Services"
+  },
+  "103": {
+    "fr": "Rédaction et révision de textes",
+    "en": "Writing and Editing"
+  },
+  "104": {
+    "fr": "Recrutement et placement de personnel",
+    "en": "Staffing and Recruiting"
+  },
+  "105": {
+    "fr": "Développement professionnel et coaching",
+    "en": "Professional Training and Coaching"
+  },
+  "106": {
+    "fr": "Activités de placement pour compte propre",
+    "en": "Venture Capital and Private Equity Principals"
+  },
+  "107": {
+    "fr": "Organisations politiques",
+    "en": "Political Organizations"
+  },
+  "108": {
+    "fr": "Traduction et localisation linguistique",
+    "en": "Translation and Localization"
+  },
+  "109": {
+    "fr": "Jeux vidéo",
+    "en": "Computer Games"
+  },
+  "110": {
+    "fr": "Événementiel",
+    "en": "Events Services"
+  },
+  "111": {
+    "fr": "Commerce de détail de fournitures artistiques",
+    "en": "Retail Art Supplies"
+  },
+  "112": {
+    "fr": "Fabrication d'appareils électroménagers, électriques et électroniques",
+    "en": "Appliances, Electrical, and Electronics Manufacturing"
+  },
+  "113": {
+    "fr": "Médias audio et vidéo en ligne",
+    "en": "Online Audio and Video Media"
+  },
+  "114": {
+    "fr": "Recherche en nanotechnologie",
+    "en": "Nanotechnology Research"
+  },
+  "115": {
+    "fr": "Musiciens",
+    "en": "Musicians"
+  },
+  "116": {
+    "fr": "Transport, logistique, chaîne logistique et stockage",
+    "en": "Transportation, Logistics, Supply Chain and Storage"
+  },
+  "117": {
+    "fr": "Fabrication de produits en plastique",
+    "en": "Plastics Manufacturing"
+  },
+  "118": {
+    "fr": "Sécurité informatique et des réseaux",
+    "en": "Computer and Network Security"
+  },
+  "119": {
+    "fr": "Télécommunications sans fil",
+    "en": "Wireless Services"
+  },
+  "120": {
+    "fr": "Modes alternatifs de règlement des conflits",
+    "en": "Alternative Dispute Resolution"
+  },
+  "121": {
+    "fr": "Enquêtes et sécurité",
+    "en": "Security and Investigations"
+  },
+  "122": {
+    "fr": "Services relatifs aux bâtiments",
+    "en": "Facilities Services"
+  },
+  "123": {
+    "fr": "Conseil en externalisation et délocalisation",
+    "en": "Outsourcing and Offshoring Consulting"
+  },
+  "124": {
+    "fr": "Services de bien-être et installations sportives",
+    "en": "Wellness and Fitness Services"
+  },
+  "125": {
+    "fr": "Médecine alternative",
+    "en": "Alternative Medicine"
+  },
+  "126": {
+    "fr": "Production audiovisuelle",
+    "en": "Media Production"
+  },
+  "127": {
+    "fr": "Animation et postproduction",
+    "en": "Animation and Post-production"
+  },
+  "128": {
+    "fr": "Immobilier non résidentiel locatif",
+    "en": "Leasing Non-residential Real Estate"
+  },
+  "129": {
+    "fr": "Marchés des capitaux",
+    "en": "Capital Markets"
+  },
+  "130": {
+    "fr": "Think tanks",
+    "en": "Think Tanks"
+  },
+  "131": {
+    "fr": "Collecte de fonds caritatifs",
+    "en": "Philanthropic Fundraising Services"
+  },
+  "132": {
+    "fr": "Fournisseurs d'apprentissage en ligne",
+    "en": "E-Learning Providers"
+  },
+  "133": {
+    "fr": "Commerce de gros",
+    "en": "Wholesale"
+  },
+  "134": {
+    "fr": "Commerce de gros import-export",
+    "en": "Wholesale Import and Export"
+  },
+  "135": {
+    "fr": "Fabrication de machines industrielles",
+    "en": "Industrial Machinery Manufacturing"
+  },
+  "136": {
+    "fr": "Photographie",
+    "en": "Photography"
+  },
+  "137": {
+    "fr": "Services de ressources humaines",
+    "en": "Human Resources Services"
+  },
+  "138": {
+    "fr": "Commerce de détail de machines et d'équipements de bureau",
+    "en": "Retail Office Equipment"
+  },
+  "139": {
+    "fr": "Soins de santé mentale",
+    "en": "Mental Health Care"
+  },
+  "140": {
+    "fr": "Design graphique",
+    "en": "Graphic Design"
+  },
+  "141": {
+    "fr": "Commerce et développement international",
+    "en": "International Trade and Development"
+  },
+  "142": {
+    "fr": "Fabrication de boissons",
+    "en": "Beverage Manufacturing"
+  },
+  "143": {
+    "fr": "Commerce de détail d'articles de joaillerie et de bijouterie",
+    "en": "Retail Luxury Goods and Jewelry"
+  },
+  "144": {
+    "fr": "Fabrication de semi-conducteurs pour énergies renouvelables",
+    "en": "Renewable Energy Semiconductor Manufacturing"
+  },
+  "145": {
+    "fr": "Fabrication de verre, de produits céramiques et de ciment",
+    "en": "Glass, Ceramics and Concrete Manufacturing"
+  },
+  "146": {
+    "fr": "Fabrication d'emballages et conteneurs",
+    "en": "Packaging and Containers Manufacturing"
+  },
+  "147": {
+    "fr": "Fabrication de machines d'automatisation",
+    "en": "Automation Machinery Manufacturing"
+  },
+  "148": {
+    "fr": "Services de lobbying",
+    "en": "Government Relations Services"
+  },
+  "150": {
+    "fr": "Horticulture",
+    "en": "Horticulture"
+  },
+  "201": {
+    "fr": "Agriculture, sylviculture et pêche",
+    "en": "Farming, Ranching, Forestry"
+  },
+  "256": {
+    "fr": "Élevage et pêche",
+    "en": "Ranching and Fisheries"
+  },
+  "298": {
+    "fr": "Sylviculture et exploitation forestière",
+    "en": "Forestry and Logging"
+  },
+  "332": {
+    "fr": "Industries extractives",
+    "en": "Oil, Gas, and Mining"
+  },
+  "341": {
+    "fr": "Extraction de charbon",
+    "en": "Coal Mining"
+  },
+  "345": {
+    "fr": "Extraction de minerais métalliques",
+    "en": "Metal Ore Mining"
+  },
+  "356": {
+    "fr": "Extraction de minerais non métalliques",
+    "en": "Nonmetallic Mineral Mining"
+  },
+  "382": {
+    "fr": "Transmission, contrôle et distribution d'énergie électrique",
+    "en": "Electric Power Transmission, Control, and Distribution"
+  },
+  "383": {
+    "fr": "Production d'électricité",
+    "en": "Electric Power Generation"
+  },
+  "384": {
+    "fr": "Production d'énergie hydroélectrique",
+    "en": "Hydroelectric Power Generation"
+  },
+  "385": {
+    "fr": "Production d'énergie à partir de combustibles fossiles",
+    "en": "Fossil Fuel Electric Power Generation"
+  },
+  "386": {
+    "fr": "Production d'électricité nucléaire",
+    "en": "Nuclear Electric Power Generation"
+  },
+  "387": {
+    "fr": "Production d'électricité solaire",
+    "en": "Solar Electric Power Generation"
+  },
+  "388": {
+    "fr": "Programmes de qualité environnementale",
+    "en": "Environmental Quality Programs"
+  },
+  "389": {
+    "fr": "Production d'électricité géothermique",
+    "en": "Geothermal Electric Power Generation"
+  },
+  "390": {
+    "fr": "Production d'électricité par biomasse",
+    "en": "Biomass Electric Power Generation"
+  },
+  "397": {
+    "fr": "Distribution de gaz naturel",
+    "en": "Natural Gas Distribution"
+  },
+  "398": {
+    "fr": "Services de gestion des eaux, eaux usées, vapeur et climatisation",
+    "en": "Water, Waste, Steam, and Air Conditioning Services"
+  },
+  "400": {
+    "fr": "Traitement et distribution d'eau",
+    "en": "Water Supply and Irrigation Systems"
+  },
+  "404": {
+    "fr": "Distribution de vapeur et d'air conditionné",
+    "en": "Steam and Air-Conditioning Supply"
+  },
+  "406": {
+    "fr": "Construction de bâtiments",
+    "en": "Building Construction"
+  },
+  "408": {
+    "fr": "Construction de bâtiments résidentiels",
+    "en": "Residential Building Construction"
+  },
+  "413": {
+    "fr": "Construction de bâtiments non résidentiels",
+    "en": "Nonresidential Building Construction"
+  },
+  "419": {
+    "fr": "Construction des services publics de distribution",
+    "en": "Utility System Construction"
+  },
+  "428": {
+    "fr": "Opération de lotissement",
+    "en": "Subdivision of Land"
+  },
+  "431": {
+    "fr": "Construction de routes, autoroutes et ponts",
+    "en": "Highway, Street, and Bridge Construction"
+  },
+  "435": {
+    "fr": "Travaux de construction spécialisés",
+    "en": "Specialty Trade Contractors"
+  },
+  "436": {
+    "fr": "Travaux de maçonnerie générale et gros œuvre de bâtiment",
+    "en": "Building Structure and Exterior Contractors"
+  },
+  "453": {
+    "fr": "Travaux d'installation électrique, plomberie et autres travaux d'installation",
+    "en": "Building Equipment Contractors"
+  },
+  "460": {
+    "fr": "Travaux de finition de bâtiment",
+    "en": "Building Finishing Contractors"
+  },
+  "481": {
+    "fr": "Fabrication d'aliments pour animaux",
+    "en": "Animal Feed Manufacturing"
+  },
+  "495": {
+    "fr": "Fabrication de sucre et produits de confiserie",
+    "en": "Sugar and Confectionery Product Manufacturing"
+  },
+  "504": {
+    "fr": "Fabrication de conserves de fruits et légumes",
+    "en": "Fruit and Vegetable Preserves Manufacturing"
+  },
+  "521": {
+    "fr": "Transformation de viande et préparation de produits à base de viande",
+    "en": "Meat Products Manufacturing"
+  },
+  "528": {
+    "fr": "Fabrication de produits de la mer",
+    "en": "Seafood Product Manufacturing"
+  },
+  "529": {
+    "fr": "Fabrication de produits de boulangerie-pâtisserie et de pâtes alimentaires",
+    "en": "Baked Goods Manufacturing"
+  },
+  "562": {
+    "fr": "Fabrication de bière",
+    "en": "Breweries"
+  },
+  "564": {
+    "fr": "Production de boissons alcooliques distillées",
+    "en": "Distilleries"
+  },
+  "598": {
+    "fr": "Fabrication de vêtements",
+    "en": "Apparel Manufacturing"
+  },
+  "615": {
+    "fr": "Fabrication d'accessoires de mode",
+    "en": "Fashion Accessories Manufacturing"
+  },
+  "616": {
+    "fr": "Maroquinerie",
+    "en": "Leather Product Manufacturing"
+  },
+  "622": {
+    "fr": "Fabrication de chaussures",
+    "en": "Footwear Manufacturing"
+  },
+  "625": {
+    "fr": "Fabrication de sacs à main",
+    "en": "Women&#39;s Handbag Manufacturing"
+  },
+  "679": {
+    "fr": "Cokéfaction et raffinage",
+    "en": "Oil and Coal Product Manufacturing"
+  },
+  "690": {
+    "fr": "Fabrication de produits chimiques de base",
+    "en": "Chemical Raw Materials Manufacturing"
+  },
+  "703": {
+    "fr": "Fabrication de caoutchouc et fibres synthétiques",
+    "en": "Artificial Rubber and Synthetic Fiber Manufacturing"
+  },
+  "709": {
+    "fr": "Fabrication de produits agrochimiques et d'engrais",
+    "en": "Agricultural Chemical Manufacturing"
+  },
+  "722": {
+    "fr": "Fabrication de peintures, enduits et adhésifs",
+    "en": "Paint, Coating, and Adhesive Manufacturing"
+  },
+  "727": {
+    "fr": "Fabrication de savons, détergents et produits d'entretien",
+    "en": "Soap and Cleaning Product Manufacturing"
+  },
+  "743": {
+    "fr": "Fabrication de produits en caoutchouc et en plastique",
+    "en": "Plastics and Rubber Product Manufacturing"
+  },
+  "763": {
+    "fr": "Fabrication de produits en caoutchouc",
+    "en": "Rubber Products Manufacturing"
+  },
+  "773": {
+    "fr": "Fabrication de produits en argile et matériaux réfractaires",
+    "en": "Clay and Refractory Products Manufacturing"
+  },
+  "779": {
+    "fr": "Fabrication de verre et d'articles en verre",
+    "en": "Glass Product Manufacturing"
+  },
+  "784": {
+    "fr": "Fabrication de produits en bois",
+    "en": "Wood Product Manufacturing"
+  },
+  "794": {
+    "fr": "Fabrication de chaux et d'éléments en plâtre",
+    "en": "Lime and Gypsum Products Manufacturing"
+  },
+  "799": {
+    "fr": "Fabrication de produits abrasifs et de produits minéraux non métalliques",
+    "en": "Abrasives and Nonmetallic Minerals Manufacturing"
+  },
+  "807": {
+    "fr": "Métallurgie",
+    "en": "Primary Metal Manufacturing"
+  },
+  "840": {
+    "fr": "Fabrication de produits métalliques",
+    "en": "Fabricated Metal Products"
+  },
+  "849": {
+    "fr": "Fabrication de coutellerie et d'outils à main",
+    "en": "Cutlery and Handtool Manufacturing"
+  },
+  "852": {
+    "fr": "Fabrication d'éléments en métal pour la construction",
+    "en": "Architectural and Structural Metal Manufacturing"
+  },
+  "861": {
+    "fr": "Fabrication de réservoirs, citernes et conteneurs métalliques",
+    "en": "Boilers, Tanks, and Shipping Container Manufacturing"
+  },
+  "871": {
+    "fr": "Fabrication de serrures et de ferrures",
+    "en": "Construction Hardware Manufacturing"
+  },
+  "873": {
+    "fr": "Fabrication de ressorts et de produits en fil métallique",
+    "en": "Spring and Wire Product Manufacturing"
+  },
+  "876": {
+    "fr": "Fabrication de pièces tournées et d'éléments de fixation",
+    "en": "Turned Products and Fastener Manufacturing"
+  },
+  "883": {
+    "fr": "Traitements des métaux",
+    "en": "Metal Treatments"
+  },
+  "887": {
+    "fr": "Fabrication de valves, billes et cylindres en métal",
+    "en": "Metal Valve, Ball, and Roller Manufacturing"
+  },
+  "901": {
+    "fr": "Fabrication de machines agricoles et forestières, pour l'extraction ou la construction",
+    "en": "Agriculture, Construction, Mining Machinery Manufacturing"
+  },
+  "918": {
+    "fr": "Fabrication de machines pour le commerce et les industries de services",
+    "en": "Commercial and Service Industry Machinery Manufacturing"
+  },
+  "923": {
+    "fr": "Fabrication d'équipements aérauliques et frigorifiques",
+    "en": "HVAC and Refrigeration Equipment Manufacturing"
+  },
+  "928": {
+    "fr": "Fabrication de machines pour la métallurgie",
+    "en": "Metalworking Machinery Manufacturing"
+  },
+  "935": {
+    "fr": "Fabrication de moteurs, génératrices et transformateurs électriques et de matériel de distribution et de commande électrique",
+    "en": "Engines and Power Transmission Equipment Manufacturing"
+  },
+  "964": {
+    "fr": "Fabrication d'équipements de communication",
+    "en": "Communications Equipment Manufacturing"
+  },
+  "973": {
+    "fr": "Fabrication d'équipements audio et vidéo",
+    "en": "Audio and Video Equipment Manufacturing"
+  },
+  "983": {
+    "fr": "Fabrication d'instruments de mesure et de contrôle",
+    "en": "Measuring and Control Instrument Manufacturing"
+  },
+  "994": {
+    "fr": "Fabrication de supports magnétiques et optiques",
+    "en": "Magnetic and Optical Media Manufacturing"
+  },
+  "998": {
+    "fr": "Fabrication d'appareils d'éclairage électrique",
+    "en": "Electric Lighting Equipment Manufacturing"
+  },
+  "1005": {
+    "fr": "Fabrication d'appareils électroménagers",
+    "en": "Household Appliance Manufacturing"
+  },
+  "1029": {
+    "fr": "Fabrication de matériel de transport",
+    "en": "Transportation Equipment Manufacturing"
+  },
+  "1042": {
+    "fr": "Fabrication d'équipements automobiles",
+    "en": "Motor Vehicle Parts Manufacturing"
+  },
+  "1080": {
+    "fr": "Fabrication de meubles pour particuliers et institutions",
+    "en": "Household and Institutional Furniture Manufacturing"
+  },
+  "1090": {
+    "fr": "Fabrication de meubles de bureau et de magasin",
+    "en": "Office Furniture and Fixtures Manufacturing"
+  },
+  "1095": {
+    "fr": "Fabrication de matelas et stores",
+    "en": "Mattress and Blinds Manufacturing"
+  },
+  "1128": {
+    "fr": "Commerce de gros de véhicules automobiles et pièces détachées",
+    "en": "Wholesale Motor Vehicles and Parts"
+  },
+  "1137": {
+    "fr": "Commerce de gros de meubles et articles d'ameublement",
+    "en": "Wholesale Furniture and Home Furnishings"
+  },
+  "1153": {
+    "fr": "Commerce de gros de matériels photographiques",
+    "en": "Wholesale Photography Equipment and Supplies"
+  },
+  "1157": {
+    "fr": "Commerce de gros d'ordinateurs et d'équipements informatiques",
+    "en": "Wholesale Computer Equipment"
+  },
+  "1166": {
+    "fr": "Commerce de gros de minerais et métaux",
+    "en": "Wholesale Metals and Minerals"
+  },
+  "1171": {
+    "fr": "Commerce de gros de matériel électrique et électronique",
+    "en": "Wholesale Appliances, Electrical, and Electronics"
+  },
+  "1178": {
+    "fr": "Commerce de gros de quincaillerie et fournitures pour plomberie et chauffage",
+    "en": "Wholesale Hardware, Plumbing, Heating Equipment"
+  },
+  "1187": {
+    "fr": "Commerce de gros d'équipements industriels",
+    "en": "Wholesale Machinery"
+  },
+  "1206": {
+    "fr": "Commerce de gros de matériaux recyclables",
+    "en": "Wholesale Recyclable Materials"
+  },
+  "1208": {
+    "fr": "Commerce de gros d'articles de joaillerie et bijouterie",
+    "en": "Wholesale Luxury Goods and Jewelry"
+  },
+  "1212": {
+    "fr": "Commerce de gros de papier et d'articles de papeterie",
+    "en": "Wholesale Paper Products"
+  },
+  "1221": {
+    "fr": "Commerce de gros de préparations pharmaceutiques",
+    "en": "Wholesale Drugs and Sundries"
+  },
+  "1222": {
+    "fr": "Commerce de gros d'habillement et de textiles",
+    "en": "Wholesale Apparel and Sewing Supplies"
+  },
+  "1230": {
+    "fr": "Commerce de gros de chaussures",
+    "en": "Wholesale Footwear"
+  },
+  "1231": {
+    "fr": "Commerce de gros de produits alimentaires et boissons",
+    "en": "Wholesale Food and Beverage"
+  },
+  "1250": {
+    "fr": "Commerce de gros de produits agricoles bruts",
+    "en": "Wholesale Raw Farm Products"
+  },
+  "1257": {
+    "fr": "Commerce de gros de produits chimiques et autres produits intermédiaires",
+    "en": "Wholesale Chemical and Allied Products"
+  },
+  "1262": {
+    "fr": "Commerce de gros de produits pétroliers",
+    "en": "Wholesale Petroleum and Petroleum Products"
+  },
+  "1267": {
+    "fr": "Commerce de gros de boissons alcoolisées",
+    "en": "Wholesale Alcoholic Beverages"
+  },
+  "1285": {
+    "fr": "Plateformes de marché en ligne",
+    "en": "Internet Marketplace Platforms"
+  },
+  "1292": {
+    "fr": "Commerce de détail de véhicules automobiles",
+    "en": "Retail Motor Vehicles"
+  },
+  "1309": {
+    "fr": "Commerce de détail de meubles et articles d'ameublement",
+    "en": "Retail Furniture and Home Furnishings"
+  },
+  "1319": {
+    "fr": "Commerce de détail d'appareils électriques et électroniques",
+    "en": "Retail Appliances, Electrical, and Electronic Equipment"
+  },
+  "1324": {
+    "fr": "Commerce de détail de matériaux de construction et matériel de jardinage",
+    "en": "Retail Building Materials and Garden Equipment"
+  },
+  "1339": {
+    "fr": "Commerce de détail de produits alimentaires et boissons",
+    "en": "Food and Beverage Retail"
+  },
+  "1359": {
+    "fr": "Commerce de détail de produits pharmaceutiques, de parfums et de produits de beauté",
+    "en": "Retail Health and Personal Care Products"
+  },
+  "1370": {
+    "fr": "Commerce de détail de carburants",
+    "en": "Retail Gasoline"
+  },
+  "1407": {
+    "fr": "Commerce de détail d'instruments de musique et de partitions musicales",
+    "en": "Retail Musical Instruments"
+  },
+  "1409": {
+    "fr": "Commerce de détail de livres, journaux et magazines",
+    "en": "Retail Books and Printed News"
+  },
+  "1423": {
+    "fr": "Commerce de détail de fleurs",
+    "en": "Retail Florists"
+  },
+  "1424": {
+    "fr": "Commerce de détail d'articles de papeterie et cadeaux",
+    "en": "Retail Office Supplies and Gifts"
+  },
+  "1431": {
+    "fr": "Commerce de détail de biens d'occasion",
+    "en": "Retail Recyclable Materials &amp; Used Merchandise"
+  },
+  "1445": {
+    "fr": "Vente à distance",
+    "en": "Online and Mail Order Retail"
+  },
+  "1481": {
+    "fr": "Transport ferroviaire",
+    "en": "Rail Transportation"
+  },
+  "1495": {
+    "fr": "Transports terrestres de voyageurs",
+    "en": "Ground Passenger Transportation"
+  },
+  "1497": {
+    "fr": "Transports urbains et suburbains de voyageurs",
+    "en": "Urban Transit Services"
+  },
+  "1504": {
+    "fr": "Services de cars interurbains et ruraux",
+    "en": "Interurban and Rural Bus Services"
+  },
+  "1505": {
+    "fr": "Services de taxis et limousines",
+    "en": "Taxi and Limousine Services"
+  },
+  "1512": {
+    "fr": "Transports scolaires et de personnel",
+    "en": "School and Employee Bus Services"
+  },
+  "1517": {
+    "fr": "Navettes et services de transport pour personnes à mobilité réduite",
+    "en": "Shuttles and Special Needs Transportation Services"
+  },
+  "1520": {
+    "fr": "Transport par conduites",
+    "en": "Pipeline Transportation"
+  },
+  "1532": {
+    "fr": "Transports touristiques",
+    "en": "Sightseeing Transportation"
+  },
+  "1573": {
+    "fr": "Services postaux",
+    "en": "Postal Services"
+  },
+  "1594": {
+    "fr": "Technologie, médias et télécommunications",
+    "en": "Technology, Information and Media"
+  },
+  "1600": {
+    "fr": "Édition de périodiques",
+    "en": "Periodical Publishing"
+  },
+  "1602": {
+    "fr": "Édition de livres",
+    "en": "Book Publishing"
+  },
+  "1611": {
+    "fr": "Films et enregistrements sonores",
+    "en": "Movies and Sound Recording"
+  },
+  "1623": {
+    "fr": "Enregistrement sonore",
+    "en": "Sound Recording"
+  },
+  "1625": {
+    "fr": "Édition de partitions musicales",
+    "en": "Sheet Music Publishing"
+  },
+  "1633": {
+    "fr": "Diffusion télévisuelle et radio",
+    "en": "Radio and Television Broadcasting"
+  },
+  "1641": {
+    "fr": "Programmation pour services par satellite ou câble",
+    "en": "Cable and Satellite Programming"
+  },
+  "1644": {
+    "fr": "Opérateurs de télécommunications",
+    "en": "Telecommunications Carriers"
+  },
+  "1649": {
+    "fr": "Télécommunications par satellite",
+    "en": "Satellite Telecommunications"
+  },
+  "1673": {
+    "fr": "Sociétés de crédit",
+    "en": "Credit Intermediation"
+  },
+  "1678": {
+    "fr": "Établissements d'épargne",
+    "en": "Savings Institutions"
+  },
+  "1696": {
+    "fr": "Courtiers en prêts",
+    "en": "Loan Brokers"
+  },
+  "1713": {
+    "fr": "Bourses de valeurs mobilières et matières premières",
+    "en": "Securities and Commodity Exchanges"
+  },
+  "1720": {
+    "fr": "Conseil en investissement",
+    "en": "Investment Advice"
+  },
+  "1725": {
+    "fr": "Compagnies d'assurances",
+    "en": "Insurance Carriers"
+  },
+  "1737": {
+    "fr": "Agences et courtiers d'assurances",
+    "en": "Insurance Agencies and Brokerages"
+  },
+  "1738": {
+    "fr": "Enquêteurs d'assurances et services actuariels",
+    "en": "Claims Adjusting, Actuarial Services"
+  },
+  "1742": {
+    "fr": "Fonds et fiducies",
+    "en": "Funds and Trusts"
+  },
+  "1743": {
+    "fr": "Programmes d'avantages sociaux des employés",
+    "en": "Insurance and Employee Benefit Funds"
+  },
+  "1745": {
+    "fr": "Fonds de pension",
+    "en": "Pension Funds"
+  },
+  "1750": {
+    "fr": "Fiducies et successions",
+    "en": "Trusts and Estates"
+  },
+  "1757": {
+    "fr": "Services immobiliers et de location de biens matériels",
+    "en": "Real Estate and Equipment Rental Services"
+  },
+  "1759": {
+    "fr": "Immobilier résidentiel locatif",
+    "en": "Leasing Residential Real Estate"
+  },
+  "1770": {
+    "fr": "Agents et courtiers immobiliers",
+    "en": "Real Estate Agents and Brokers"
+  },
+  "1779": {
+    "fr": "Services de location de biens matériels",
+    "en": "Equipment Rental Services"
+  },
+  "1786": {
+    "fr": "Location de biens de consommation",
+    "en": "Consumer Goods Rental"
+  },
+  "1798": {
+    "fr": "Location d'équipements commerciaux et industriels",
+    "en": "Commercial and Industrial Equipment Rental"
+  },
+  "1810": {
+    "fr": "Services professionnels",
+    "en": "Professional Services"
+  },
+  "1855": {
+    "fr": "Services de conception de systèmes informatiques",
+    "en": "IT System Design Services"
+  },
+  "1862": {
+    "fr": "Services de marketing",
+    "en": "Marketing Services"
+  },
+  "1905": {
+    "fr": "Sociétés holding",
+    "en": "Holding Companies"
+  },
+  "1909": {
+    "fr": "Associations sectorielles",
+    "en": "Industry Associations"
+  },
+  "1911": {
+    "fr": "Organisations professionnelles",
+    "en": "Professional Organizations"
+  },
+  "1912": {
+    "fr": "Services administratifs et de soutien",
+    "en": "Administrative and Support Services"
+  },
+  "1916": {
+    "fr": "Services administratifs",
+    "en": "Office Administration"
+  },
+  "1923": {
+    "fr": "Services de recrutement de cadres",
+    "en": "Executive Search Services"
+  },
+  "1925": {
+    "fr": "Services des agences de travail temporaire",
+    "en": "Temporary Help Services"
+  },
+  "1931": {
+    "fr": "Centres d'appels téléphoniques",
+    "en": "Telephone Call Centers"
+  },
+  "1938": {
+    "fr": "Sociétés de recouvrement",
+    "en": "Collection Agencies"
+  },
+  "1956": {
+    "fr": "Services d'agents de sécurité et de surveillance",
+    "en": "Security Guards and Patrol Services"
+  },
+  "1958": {
+    "fr": "Services de systèmes de sécurité",
+    "en": "Security Systems Services"
+  },
+  "1965": {
+    "fr": "Services de nettoyage et d'entretien",
+    "en": "Janitorial Services"
+  },
+  "1981": {
+    "fr": "Collecte des déchets",
+    "en": "Waste Collection"
+  },
+  "1986": {
+    "fr": "Traitement et élimination des déchets",
+    "en": "Waste Treatment and Disposal"
+  },
+  "1999": {
+    "fr": "Enseignement",
+    "en": "Education"
+  },
+  "2012": {
+    "fr": "Écoles de secrétariat",
+    "en": "Secretarial Schools"
+  },
+  "2018": {
+    "fr": "Formation technique et professionnelle",
+    "en": "Technical and Vocational Training"
+  },
+  "2019": {
+    "fr": "Écoles d'esthétique et de coiffure",
+    "en": "Cosmetology and Barber Schools"
+  },
+  "2020": {
+    "fr": "Formation au pilotage",
+    "en": "Flight Training"
+  },
+  "2025": {
+    "fr": "Enseignement des beaux-arts",
+    "en": "Fine Arts Schools"
+  },
+  "2027": {
+    "fr": "Enseignement de disciplines sportives et d'activités de loisirs",
+    "en": "Sports and Recreation Instruction"
+  },
+  "2029": {
+    "fr": "Écoles de langues",
+    "en": "Language Schools"
+  },
+  "2040": {
+    "fr": "Médecins",
+    "en": "Physicians"
+  },
+  "2045": {
+    "fr": "Dentistes",
+    "en": "Dentists"
+  },
+  "2050": {
+    "fr": "Optométristes",
+    "en": "Optometrists"
+  },
+  "2054": {
+    "fr": "Kinésithérapeutes, ergothérapeutes et orthophonistes",
+    "en": "Physical, Occupational and Speech Therapists"
+  },
+  "2060": {
+    "fr": "Centres de planification familiale",
+    "en": "Family Planning Centers"
+  },
+  "2063": {
+    "fr": "Centres de soins ambulatoires",
+    "en": "Outpatient Care Centers"
+  },
+  "2069": {
+    "fr": "Laboratoires d'analyses médicales",
+    "en": "Medical and Diagnostic Laboratories"
+  },
+  "2074": {
+    "fr": "Services de santé à domicile",
+    "en": "Home Health Care Services"
+  },
+  "2077": {
+    "fr": "Services d'ambulances",
+    "en": "Ambulance Services"
+  },
+  "2081": {
+    "fr": "Hôpitaux",
+    "en": "Hospitals"
+  },
+  "2091": {
+    "fr": "Services d'hébergement médicalisé",
+    "en": "Nursing Homes and Residential Care Facilities"
+  },
+  "2112": {
+    "fr": "Services aux personnes âgées ou en situation de handicap",
+    "en": "Services for the Elderly and Disabled"
+  },
+  "2115": {
+    "fr": "Action sociale et solidarité",
+    "en": "Community Services"
+  },
+  "2122": {
+    "fr": "Services d'urgence et d'assistance",
+    "en": "Emergency and Relief Services"
+  },
+  "2125": {
+    "fr": "Services d'aide à l'insertion professionnelle",
+    "en": "Vocational Rehabilitation Services"
+  },
+  "2128": {
+    "fr": "Accueil de jeunes enfants",
+    "en": "Child Day Care Services"
+  },
+  "2130": {
+    "fr": "Arts et sports de spectacle",
+    "en": "Performing Arts and Spectator Sports"
+  },
+  "2133": {
+    "fr": "Compagnies de théâtre",
+    "en": "Theater Companies"
+  },
+  "2135": {
+    "fr": "Compagnies de danse",
+    "en": "Dance Companies"
+  },
+  "2139": {
+    "fr": "Cirques et spectacles de magie",
+    "en": "Circuses and Magic Shows"
+  },
+  "2142": {
+    "fr": "Équipes et clubs de sport",
+    "en": "Sports Teams and Clubs"
+  },
+  "2143": {
+    "fr": "Circuits de course",
+    "en": "Racetracks"
+  },
+  "2159": {
+    "fr": "Musées",
+    "en": "Museums"
+  },
+  "2161": {
+    "fr": "Sites historiques",
+    "en": "Historical Sites"
+  },
+  "2163": {
+    "fr": "Zoos et jardins botaniques",
+    "en": "Zoos and Botanical Gardens"
+  },
+  "2167": {
+    "fr": "Parcs d'attractions et salles de jeux",
+    "en": "Amusement Parks and Arcades"
+  },
+  "2179": {
+    "fr": "Parcours de golf et country clubs",
+    "en": "Golf Courses and Country Clubs"
+  },
+  "2181": {
+    "fr": "Stations de ski",
+    "en": "Skiing Facilities"
+  },
+  "2190": {
+    "fr": "Services d'hébergement et de restauration",
+    "en": "Accommodation and Food Services"
+  },
+  "2194": {
+    "fr": "Hôtels et motels",
+    "en": "Hotels and Motels"
+  },
+  "2197": {
+    "fr": "Auberges et chambres d'hôtes",
+    "en": "Bed-and-Breakfasts, Hostels, Homestays"
+  },
+  "2212": {
+    "fr": "Traiteurs",
+    "en": "Caterers"
+  },
+  "2214": {
+    "fr": "Services de restauration mobile",
+    "en": "Mobile Food Services"
+  },
+  "2217": {
+    "fr": "Débits de boissons",
+    "en": "Bars, Taverns, and Nightclubs"
+  },
+  "2225": {
+    "fr": "Réparation et entretien",
+    "en": "Repair and Maintenance"
+  },
+  "2226": {
+    "fr": "Entretien et réparation de véhicules",
+    "en": "Vehicle Repair and Maintenance"
+  },
+  "2240": {
+    "fr": "Réparation et entretien de matériel électronique et de précision",
+    "en": "Electronic and Precision Equipment Maintenance"
+  },
+  "2247": {
+    "fr": "Entretien de machines commerciales et industrielles",
+    "en": "Commercial and Industrial Machinery Maintenance"
+  },
+  "2253": {
+    "fr": "Réfection de tissus d'ameublement et réparation de meubles",
+    "en": "Reupholstery and Furniture Repair"
+  },
+  "2255": {
+    "fr": "Réparation de chaussures et d'articles en cuir",
+    "en": "Footwear and Leather Goods Repair"
+  },
+  "2258": {
+    "fr": "Services de conciergerie et services personnels",
+    "en": "Personal and Laundry Services"
+  },
+  "2259": {
+    "fr": "Services de coiffure et soins de beauté",
+    "en": "Personal Care Services"
+  },
+  "2272": {
+    "fr": "Services de blanchisserie et de pressing",
+    "en": "Laundry and Drycleaning Services"
+  },
+  "2282": {
+    "fr": "Services aux animaux de compagnie",
+    "en": "Pet Services"
+  },
+  "2318": {
+    "fr": "Ménages employeurs de personnel domestique",
+    "en": "Household Services"
+  },
+  "2353": {
+    "fr": "Santé et services sociaux",
+    "en": "Health and Human Services"
+  },
+  "2358": {
+    "fr": "Santé publique",
+    "en": "Public Health"
+  },
+  "2360": {
+    "fr": "Programmes d'aide sociale",
+    "en": "Public Assistance Programs"
+  },
+  "2366": {
+    "fr": "Gestion de programmes portant sur l'air, les eaux et les déchets",
+    "en": "Air, Water, and Waste Program Management"
+  },
+  "2368": {
+    "fr": "Programmes de conservation de l'environnement",
+    "en": "Conservation Programs"
+  },
+  "2369": {
+    "fr": "Programmes de logements sociaux et d'urbanisme",
+    "en": "Housing and Community Development"
+  },
+  "2374": {
+    "fr": "Administration et planification du développement urbain et rural",
+    "en": "Community Development and Urban Planning"
+  },
+  "2375": {
+    "fr": "Programmes économiques",
+    "en": "Economic Programs"
+  },
+  "2391": {
+    "fr": "Défense et affaires étrangères",
+    "en": "Military and International Affairs"
+  },
+  "2401": {
+    "fr": "Conseil opérationnel",
+    "en": "Operations Consulting"
+  },
+  "2458": {
+    "fr": "Infrastructure de données et data analytics",
+    "en": "Data Infrastructure and Analytics"
+  },
+  "2468": {
+    "fr": "Fabrication d'équipements électriques",
+    "en": "Electrical Equipment Manufacturing"
+  },
+  "2489": {
+    "fr": "Production d'électricité éolienne",
+    "en": "Wind Electric Power Generation"
+  },
+  "2500": {
+    "fr": "Production de vin",
+    "en": "Wineries"
+  },
+  "2934": {
+    "fr": "Services d'aménagement paysager",
+    "en": "Landscaping Services"
+  },
+  "3065": {
+    "fr": "Cours de justice",
+    "en": "Courts of Law"
+  },
+  "3068": {
+    "fr": "Établissements pénitentiaires",
+    "en": "Correctional Institutions"
+  },
+  "3070": {
+    "fr": "Services de lutte contre les incendies",
+    "en": "Fire Protection"
+  },
+  "3081": {
+    "fr": "Programme de logements sociaux",
+    "en": "Housing Programs"
+  },
+  "3085": {
+    "fr": "Programmes relatifs aux transports",
+    "en": "Transportation Programs"
+  },
+  "3086": {
+    "fr": "Gestion des services publics de distribution",
+    "en": "Utilities Administration"
+  },
+  "3089": {
+    "fr": "Recherche et technologie spatiales",
+    "en": "Space Research and Technology"
+  },
+  "3095": {
+    "fr": "Extraction de pétrole",
+    "en": "Oil Extraction"
+  },
+  "3096": {
+    "fr": "Extraction de gaz naturel",
+    "en": "Natural Gas Extraction"
+  },
+  "3099": {
+    "fr": "Produits logiciels embarqués",
+    "en": "Embedded Software Products"
+  },
+  "3100": {
+    "fr": "Produits logiciels d'informatique mobile",
+    "en": "Mobile Computing Software Products"
+  },
+  "3101": {
+    "fr": "Produits logiciels informatiques pour ordinateurs",
+    "en": "Desktop Computing Software Products"
+  },
+  "3102": {
+    "fr": "Développement de logiciels personnalisés de systèmes informatiques",
+    "en": "IT System Custom Software Development"
+  },
+  "3103": {
+    "fr": "Exploitation et maintenance de systèmes informatiques",
+    "en": "IT System Operations and Maintenance"
+  },
+  "3104": {
+    "fr": "Installation et suppression de systèmes informatiques",
+    "en": "IT System Installation and Disposal"
+  },
+  "3105": {
+    "fr": "Formation et assistance en systèmes informatiques",
+    "en": "IT System Training and Support"
+  },
+  "3106": {
+    "fr": "Services de données de systèmes informatiques",
+    "en": "IT System Data Services"
+  },
+  "3107": {
+    "fr": "Tests et évaluation de systèmes informatiques",
+    "en": "IT System Testing and Evaluation"
+  },
+  "3124": {
+    "fr": "Actualité en ligne",
+    "en": "Internet News"
+  },
+  "3125": {
+    "fr": "Blogs",
+    "en": "Blogs"
+  },
+  "3126": {
+    "fr": "Design d'intérieur",
+    "en": "Interior Design"
+  },
+  "3127": {
+    "fr": "Plateformes de réseaux sociaux",
+    "en": "Social Networking Platforms"
+  },
+  "3128": {
+    "fr": "Plateformes d'informatique décisionnelle",
+    "en": "Business Intelligence Platforms"
+  },
+  "3129": {
+    "fr": "Actualité des entreprises et des marchés",
+    "en": "Business Content"
+  },
+  "3130": {
+    "fr": "Produits logiciels de sécurité des données",
+    "en": "Data Security Software Products"
+  },
+  "3131": {
+    "fr": "Applications mobiles de jeux",
+    "en": "Mobile Gaming Apps"
+  },
+  "3132": {
+    "fr": "Édition en ligne",
+    "en": "Internet Publishing"
+  },
+  "3133": {
+    "fr": "Médias et télécommunications",
+    "en": "Media and Telecommunications"
+  },
+  "3134": {
+    "fr": "Services de blockchain",
+    "en": "Blockchain Services"
+  },
+  "3186": {
+    "fr": "Marchands d'art",
+    "en": "Retail Art Dealers"
+  },
+  "3240": {
+    "fr": "Production d'énergies renouvelables",
+    "en": "Renewable Energy Power Generation"
+  },
+  "3241": {
+    "fr": "Fabrication d'équipements pour les énergies renouvelables",
+    "en": "Renewable Energy Equipment Manufacturing"
+  },
+  "3242": {
+    "fr": "Services d'ingénierie",
+    "en": "Engineering Services"
+  },
+  "3243": {
+    "fr": "Services pour les énergies renouvelables",
+    "en": "Services for Renewable Energy"
+  },
+  "3244": {
+    "fr": "Services d'accessibilité numérique",
+    "en": "Digital Accessibility Services"
+  },
+  "3245": {
+    "fr": "Fabrication de matériel informatique d'accessibilité",
+    "en": "Accessible Hardware Manufacturing"
+  },
+  "3246": {
+    "fr": "Architecture et design accessibles",
+    "en": "Accessible Architecture and Design"
+  },
+  "3247": {
+    "fr": "Fabrication de robots",
+    "en": "Robot Manufacturing"
+  },
+  "3248": {
+    "fr": "Ingénierie robotique",
+    "en": "Robotics Engineering"
+  },
+  "3249": {
+    "fr": "Services d'arpentage et de cartographie",
+    "en": "Surveying and Mapping Services"
+  },
+  "3250": {
+    "fr": "Officines de pharmacie",
+    "en": "Retail Pharmacies"
+  },
+  "3251": {
+    "fr": "Développement de technologies climatiques",
+    "en": "Climate Technology Product Manufacturing"
+  },
+  "3252": {
+    "fr": "Données et analyses climatiques",
+    "en": "Climate Data and Analytics"
+  },
+  "3253": {
+    "fr": "Production de véhicules à carburant alternatif",
+    "en": "Alternative Fuel Vehicle Manufacturing"
+  },
+  "3254": {
+    "fr": "Fabrication de compteurs intelligents",
+    "en": "Smart Meter Manufacturing"
+  },
+  "3255": {
+    "fr": "Fabrication de piles à combustible",
+    "en": "Fuel Cell Manufacturing"
+  },
+  "3256": {
+    "fr": "Design régénératif",
+    "en": "Regenerative Design"
+  }
+}

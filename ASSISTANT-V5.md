@@ -29,6 +29,57 @@ Les deltas de texte et linkedin.accounts existants sont conservés. Nouveaux év
 
 Le serveur construit les cartes à partir des résultats d’outils, jamais à partir d’un marqueur inventé par le modèle. Les destinations des formulaires sont une liste fixe dans le front.
 
+### Mode import de prospects
+
+`POST /ai/chat` conserve `{messages:[{role,content}], tier, provider, openai_key_id?, model?}` et accepte en plus `mode?: "chat" | "import"` (défaut `"chat"`). Le serveur active aussi le mode import si le premier message utilisateur commence par `[Contexte : je suis sur la page de création de liste`, pour le front v5 actuel qui n'envoie pas encore `mode`. Le mode chat conserve ses outils et son comportement antérieurs. En mode import, le premier appel au modèle de chaque tour force `update_targeting`; les outils de mutation restent indisponibles avant un nouveau message utilisateur de validation explicite et tant que `ready_to_launch` est faux. Le serveur reprend le nom donné dans `La cible me convient : crée la liste « Nom »…` et n'essaie qu'un lancement par réponse.
+
+`event: targeting.criteria` transporte **exactement** l'objet normalisé ci-dessous. Il vient de `update_targeting` (sans appel API) ; le serveur calcule `ready_to_launch` et `missing`. Cet outil n'émet ni `assistant.card` ni `assistant.changed`.
+
+```json
+{
+  "source": null,
+  "job_titles": [], "seniority": [], "sectors": [],
+  "company_size_min": null, "company_size_max": null,
+  "locations": [], "companies": [], "activity": null, "cities": [],
+  "exclusions": [], "max_results": null,
+  "ready_to_launch": false, "missing": []
+}
+```
+
+`source` vaut `"linkedin"`, `"sales_navigator"`, `"database"`, `"google_maps"` ou `null`. Les tableaux ci-dessus contiennent des chaînes ; les deux bornes de taille et `max_results` sont des nombres ou `null`, `activity` est une chaîne ou `null`, `missing` contient les critères manquants en français. `ready_to_launch` exige notamment une activité et une ville pour Google Maps, ou une zone et un critère professionnel pour LinkedIn/Sales Navigator.
+
+| Outil | Arguments | Résultat / droits |
+| --- | --- | --- |
+| `update_targeting` | Objet de critères ci-dessus, sans `ready_to_launch` ni `missing` | Retourne l'objet normalisé et émet `targeting.criteria` ; aucune mutation. |
+| `count_database_targeting` | `{filters}` | `POST /targeting/database/count-preview`; retourne `{count, criteria_applied, note}`. Nécessite `displayTargetingDatabase`. Le compte doit être communiqué avant validation. |
+| `run_database_targeting` | `{filters, list_name? | contact_list_id?, max_results?}` | `POST /targeting/database/extract`, `max_results` 100 par défaut, 10 000 max, langue `FRA`, pays `null`. Nécessite `accessTargetingDatabase`. |
+| `run_sales_navigator_targeting` | `{titles?:string[], locations?:string[], industries?:string[], companies?:string[], company_head_counts?:string[], seniority_levels?:string[], linkedin_account_id:number, list_name? | contact_list_id?, max_results?, generate_email?}` | Génère l'URL puis lance l'extraction standard ou `-alternative` selon `useAlternativeTargeting`. Nécessite `accessSearchAI`, un compte Sales Navigator valide sans checkpoint ; 100 résultats par défaut, 1 000 max, `generate_email:true` par défaut. |
+| `ask_linkedin_account` | `{sales_navigator_only?:boolean}` | Filtre la carte de sélection aux comptes valides, sans checkpoint et, si demandé, Sales Navigator. Aucun ID n'est inventé. |
+| `run_linkedin_targeting`, `run_google_maps_targeting` | `list_name` **ou** `contact_list_id` en plus de leurs critères existants | Alimentent une liste existante avec `{contact_list_name:null, contact_list_id:id}`. La liste doit être accessible au compte appelant. |
+
+Un filtre de base a la forme `{field, <opérateur>: string[]}` ou `{field, exists: boolean}`. Champs texte permis : `job_title`, `contact_location`, `company`, `company_size`, `activity`, `category`, `zip_code`, `naf_code`, `country`. Opérateurs : `contains`, `does_not_contain`, `starts_with`, `does_not_start_with`, `ends_with`, `does_not_end_with`, `exact_match`. `zip_code` utilise `starts_with`; `naf_code` a cinq caractères ; `company_size` accepte `0-10`, `11-50`, `51-200`, `201-500`, `501-1000`, `1001-5000`, `5001-10000`, `10001+`. `exists` est réservé à `phone`, `linkedin_url`, `website`, `summary`. Les valeurs `contact_location` sont résolues par `/targeting/database/locations/search` avant comptage et extraction. Les filtres invalides ou les localisations ambiguës bloquent le lancement.
+
+Payloads Magileads envoyés par les nouveaux outils (les tableaux vides sont omis du premier) :
+
+```text
+POST /targeting/linkedin/generate-sales-navigator-peoples-search-url
+{"current_titles":["Directeur"],"locations":["105015875"],"industries":["4"],"current_companies":["Acme"],"company_head_counts":["51-200"],"seniority_levels":["director"]}
+POST /targeting/linkedin/extract-sales-navigator-peoples-search[-alternative]
+{"linkedin_sales_navigator_search_url":"https://www.linkedin.com/sales/search/people?...","linkedin_people_search_url":"https://www.linkedin.com/sales/search/people?...","linkedin_account_id":7,"generate_email":true,"max_results":100,"contact_list_name":"Prospects","contact_list_id":null,"contact_list_language":null,"contact_list_country":null,"exclude_viewed_leads":false,"exclude_crm_contacts":false}
+POST /targeting/database/count-preview
+{"filters":[{"field":"contact_location","contains":["Paris, France"]}]}
+POST /targeting/database/extract
+{"contact_list_name":"Prospects","contact_list_id":null,"max_results":100,"filters":[{"field":"contact_location","contains":["Paris, France"]}],"contact_list_country":null,"contact_list_language":"FRA"}
+```
+
+Pour alimenter une liste existante, les deux clés deviennent `"contact_list_name":null,"contact_list_id":123`. `locations` et `industries` de Sales Navigator sont des identifiants numériques encodés comme chaînes conformément au contrat de cet outil ; le Swagger public les déclare comme entiers, ce qui demande une vérification authentifiée avec l'API avant de conclure sur leur acceptation effective.
+
+Chaque `run_*` réussi retourne `{status:"extraction lancée", list_id, list_name, criteria_applied, note}`. Les extractions Sales Navigator rapportent les filtres ignorés dans `criteria_applied.ignored_filters` et `note`. Les codes de secteur viennent du catalogue du sélecteur v4 ; effectifs et niveaux utilisent les valeurs exposées dans le Swagger Magileads. Pour chacun, le serveur compare l'URL obtenue avec et sans filtre avant de l'annoncer comme appliqué. Les événements existants restent inchangés : `tool.progress` avec `creates_list:true`, puis `assistant.card` `{kind:"lists", items:[{id,name}]}` sur succès, et `assistant.changed` pour invalider les données.
+
+`SERVER_URL=... TOKEN=... node examples/import-smoke.mjs` imprime le flux réel sans lancer d'extraction. Définir en plus `VALIDATE_NAME="Nom"` envoie la validation et autorise une extraction réelle. Le script échoue si une carte de liste ou un progrès de création arrive avant validation.
+
+Le Swagger public de `https://app.api-magileads.net/swagger.json` confirme les chemins, les champs `contact_list_id` des trois extractions, les schémas de filtres et les enums `CompanyHeadCount` / `SeniorityLevel`. Aucun appel authentifié aux endpoints de génération, comptage ou extraction n'a été effectué lors de cette implémentation ; l'acceptation effective des valeurs et les permissions d'un compte réel restent à vérifier avec un `TOKEN` de test. Les tests HTTP locaux simulent ces réponses et vérifient les payloads, les cartes et le blocage avant validation.
+
 ## Vérification et mise en service
 
 - Serveur : `node --test src/*.test.js` (intégration OpenAI Magileads par compte, absence de stockage local, outils et flux HTTP).

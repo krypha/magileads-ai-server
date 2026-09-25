@@ -110,6 +110,13 @@ export const generateSalesNavSearchUrl = (auth, filters) =>
     body: filters,
   });
 
+export const searchDatabaseLocations = (auth, name) =>
+  request("/targeting/database/locations/search", { auth, method: "POST", body: { name } });
+export const countDatabaseTargeting = (auth, filters) =>
+  request("/targeting/database/count-preview", { auth, method: "POST", body: { filters } });
+export const extractDatabaseTargeting = (auth, body) =>
+  request("/targeting/database/extract", { auth, method: "POST", body });
+
 /** Generic LinkedIn extraction (path = endpoint after /targeting/linkedin/). */
 export const linkedinExtract = (auth, path, body) =>
   request(`/targeting/linkedin/${path}`, { auth, method: "POST", body });
