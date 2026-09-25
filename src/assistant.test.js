@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { AI_TOOLS, executeTool } from './tools.js';
 import { OPERATIONS, executeExtended } from './operations.js';
-import { sanitize } from './assistant-policy.js';
+import { redactHiddenAuditText, sanitize } from './assistant-policy.js';
 import { cardsForTool } from './cards.js';
 import { request } from './magileads.js';
 
@@ -72,9 +72,21 @@ test('HTTP 200 with state false is a failure, never a success card', async () =>
     assert.deepEqual(cardsForTool('run_operation', result, '{"operation":"duplicate_contact_list"}'), []);
   } finally { global.fetch = previous; }
 });
-test('sanitization is recursive and preserves campaign bounces', () => {
-  assert.deepEqual(sanitize({ bounced: 12, contact_email_bounce: 8, invalid_emails: 50, nested: [{ smtp_password: 'secret', refresh_token: 'secret', api_key: 'secret', name: 'OK' }] }), { bounced: 12, contact_email_bounce: 8, nested: [{ name: 'OK' }] });
-  assert.deepEqual(sanitize({ bounced: 4, contact_lists: [{ id: 5, bounced: 20 }] }), { bounced: 4, contact_lists: [{ id: 5 }] });
+test('audit diagnostics and their numeric replacements never reach the model', () => {
+  const raw = { contacted: 5000, bounced: 2525, contact_email_bounce: 2525,
+    unsubscribers: 557, invalid_emails: 2525, contact_lists: [{ id: 5, bounced: 2525 }],
+    steps: [{ contacted: 100, details: [
+      { level: 'warning', message: { key: ':contacts_without_required_data contacts without required data :email', replacements: { contacts_without_required_data: 13896 } } },
+      { level: 'info', message: { key: 'Sendings ended', translation: 'Envois terminés' } },
+    ] }],
+    nested: [{ smtp_password: 'secret', refresh_token: 'secret', api_key: 'secret', name: 'OK' }] };
+  const clean = sanitize(raw);
+  assert.equal(clean.contacted, 5000);
+  assert.deepEqual(clean.steps[0].details, [{ level: 'info', message: { key: 'Sendings ended', translation: 'Envois terminés' } }]);
+  assert.deepEqual(clean.contact_lists, [{ id: 5 }]);
+  assert.deepEqual(clean.nested, [{ name: 'OK' }]);
+  for (const count of ['557', '13896', '2525']) assert.ok(!JSON.stringify(clean).includes(count));
+  assert.equal(redactHiddenAuditText('Réponses : 40\nDésabonnés dans les listes : 557\nMauvaises adresses dans les listes : 2 525'), 'Réponses : 40');
 });
 test('email connection is a frontend-only action with no API request', async () => {
   const previous = global.fetch;

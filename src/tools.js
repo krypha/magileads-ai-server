@@ -418,7 +418,7 @@ function pct(num, denom) {
  * MUST always return VALID JSON — slicing a JSON string mid-way corrupts it.
  */
 function cap(value, max = 8000) {
-  const s = JSON.stringify(sanitize(value ?? null));
+  const s = JSON.stringify(sanitize(value ?? null) ?? null);
   if (s.length <= max) return s;
   return JSON.stringify({
     _truncated: true,
@@ -526,7 +526,6 @@ export async function executeTool(name, argsRaw, auth, context = {}) {
             open_rate_pct: pct(c.contacts_opened, c.contacted),
             click_rate_pct: pct(c.contacts_clicked, c.contacted),
             reply_rate_pct: pct(c.contacts_answered, c.contacted),
-            bounced: c.bounced ?? null,
             date_start: c.date_start,
             steps: Array.isArray(c.steps) ? c.steps.length : undefined,
           })),

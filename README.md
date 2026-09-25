@@ -64,6 +64,9 @@ npm run start:node       # node --env-file=.env src/server.js
 | `MAGILEADS_API_BASE` | `https://app.api-magileads.net`                                     |
 | `AI_API_URL`         | Hôte OpenRouter (défaut `https://openrouter.ai/api/v1`)             |
 | `AI_API_KEY`         | Clé OpenRouter de la plateforme (**serveur uniquement**)           |
+| `AI_INCLUDED_API_KEY` | Clé OpenRouter dédiée aux comptes `level=user`, plafonnée à 3 USD avec `limit_reset=daily`. Sans plafond vérifiable, le serveur utilise le modèle gratuit. |
+| `AI_API_KEY_FREE`   | Clé distincte recommandée pour le repli gratuit après épuisement du budget (à défaut : `AI_API_KEY`). |
+| `AI_MODEL_INCLUDED` | Modèle Simple imposé aux comptes `level=user` (défaut `deepseek/deepseek-v4-flash`). |
 | `AI_MODEL_FREE`      | Palier « Gratuit » — défaut `openrouter/free` (routeur géré par OpenRouter). Accepte aussi une liste séparée par des virgules, essayée dans l'ordre |
 | `AI_MODEL`           | Modèle du palier « Simple » (palier par défaut)                     |
 | `AI_MODEL_COMPLEX`   | Modèle du palier « Complexe » (si vide → identique à Simple)        |
@@ -86,6 +89,22 @@ Il ne la met ni en fichier, ni en cache, ni dans le prompt ou l'historique du
 Les appels OpenAI sont facturés au titulaire de la clé enregistrée dans
 Magileads. Le palier « Gratuit » reste réservé à OpenRouter. Claude reste
 désactivé tant que l'API Magileads n'accepte pas son intégration.
+
+Pour un compte dont `/users/me` indique `level: "user"`, le serveur impose
+`tier: "simple"` même si le client envoie un autre palier ; le front masque
+le sélecteur. Avec l'IA incluse, le serveur vérifie `GET /api/v1/key`
+auprès d'OpenRouter avant chaque chat : la clé doit avoir un plafond de
+3 USD maximum, `limit_reset: "daily"` et un solde positif. Sinon il choisit
+`AI_MODEL_FREE` avant l'appel. Un refus 402/429 du modèle payant déclenche
+aussi ce repli. Le plafond est appliqué par OpenRouter entre toutes les
+instances ; le serveur IA ne stocke aucun compteur ni clé utilisateur.
+
+L'IA incluse refuse avant l'appel au modèle un dernier message de plus de
+4 000 caractères ou un historique de plus de 24 000 caractères (`413
+shared_prompt_too_large`). Chaque réponse est limitée à 2 048 tokens par
+tour de modèle. Une clé OpenAI personnelle n'est pas soumise à ces limites.
+Ce garde-fou réduit le coût par requête ; un quota journalier exact par
+compte nécessitera un endpoint de réservation/compteur dans l'API Magileads.
 
 ---
 
@@ -139,7 +158,7 @@ l'application. Le composant Mantine gère ce cas via `getAuthHeaders`.
 | Palier | Modèle utilisé | Particularité |
 | ------ | -------------- | ------------- |
 | `free` | `AI_MODEL_FREE` (défaut `openrouter/free`) | OpenRouter sélectionne lui-même un modèle gratuit. Si une liste est épinglée, **bascule automatique** sur le suivant en cas de 429/404/402 |
-| `simple` | `AI_MODEL` | palier par défaut |
+| `simple` | `AI_MODEL` pour les admins ; `AI_MODEL_INCLUDED` pour `level=user` | palier par défaut |
 | `complex` | `AI_MODEL_COMPLEX` | retombe sur `AI_MODEL` si non défini |
 | `custom` | fourni par le client | permet de tester un modèle précis |
 
@@ -154,6 +173,7 @@ l'application. Le composant Mantine gère ce cas via `getAuthHeaders`.
 | *(sans event)*            | `[DONE]`                                                             | fin du flux                          |
 
 **Codes d'erreur** : `401` (token absent ou expiré → rafraîchir puis rejouer),
+  `413` (`shared_prompt_too_large` : réduire la demande ou connecter une clé OpenAI),
   `429` (rate limit), `409` (choix de clé OpenAI nécessaire), `412` (intégration
   OpenAI absente ou clé choisie inaccessible), `502` (lecture de
 l'intégration Magileads indisponible), `503` (OpenRouter non configuré), `400`

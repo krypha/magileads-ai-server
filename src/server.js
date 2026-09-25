@@ -26,6 +26,8 @@ import { AI_TOOLS, TOOL_LABELS, CREATES_LIST, executeTool } from "./tools.js";
 import { buildSystemPrompt } from "./prompt.js";
 import { MODEL_PROVIDERS, readModelStream, resolveModels, upstreamRequest } from './model-providers.js';
 import { approvedRunTool, approvedToolArgs, parseImportApproval } from './import-approval.js';
+import { checkIncludedBudget, sharedPromptTooLarge } from './included-budget.js';
+import { redactHiddenAuditText } from './assistant-policy.js';
 
 const PORT = Number(process.env.PORT) || 8787;
 const AI_API_KEY = process.env.AI_API_KEY;
@@ -208,7 +210,8 @@ async function handleChat(req, res, cors) {
     .filter(
       (m) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string",
     )
-    .map((m) => ({ role: m.role, content: m.content.slice(0, MAX_CONTENT) }));
+    .map((m) => ({ role: m.role, content: (m.role === 'assistant'
+      ? redactHiddenAuditText(m.content) : m.content).slice(0, MAX_CONTENT) }));
   const importMode = body.mode === 'import' || allMessages.find(message => message.role === 'user')?.content.startsWith(IMPORT_CONTEXT_PREFIX);
   const clientMessages = allMessages.slice(-MAX_MESSAGES);
   if (!clientMessages.length) return json(res, 400, { ok: false, errorKey: "empty" }, cors);
@@ -229,12 +232,32 @@ async function handleChat(req, res, cors) {
   if (!MODEL_PROVIDERS.includes(provider)) {
     return json(res, 400, { ok: false, errorKey: 'invalid_provider' }, cors);
   }
-  const tier = ["free", "simple", "complex", "custom"].includes(body.tier) ? body.tier : "simple";
+  // A regular user cannot bypass the included tier with a forged client body.
+  const tier = profile.level === 'user' ? 'simple'
+    : ["free", "simple", "complex", "custom"].includes(body.tier) ? body.tier : "simple";
   if (provider !== 'openrouter' && tier === 'free') {
     return json(res, 400, { ok: false, errorKey: 'paid_provider_has_no_free_tier' }, cors);
   }
-  const candidates = resolveModels(provider, tier, body.model);
-  if (!candidates.length) {
+  const included = profile.level === 'user' && provider === 'openrouter';
+  if (included && sharedPromptTooLarge(clientMessages)) {
+    return json(res, 413, { ok: false, errorKey: 'shared_prompt_too_large' }, cors);
+  }
+  let candidates = resolveModels(provider, tier, body.model);
+  let candidateKeys = null;
+  let candidateTiers = null;
+  let budgetFallback = false;
+  if (included) {
+    const paidKey = process.env.AI_INCLUDED_API_KEY || AI_API_KEY;
+    const freeKey = process.env.AI_API_KEY_FREE || AI_API_KEY || paidKey;
+    const freeModels = resolveModels('openrouter', 'free');
+    const paidAvailable = await checkIncludedBudget(paidKey);
+    budgetFallback = !paidAvailable;
+    const paidModels = paidAvailable ? [process.env.AI_MODEL_INCLUDED || 'deepseek/deepseek-v4-flash'] : [];
+    candidates = [...paidModels, ...freeModels];
+    candidateKeys = [...paidModels.map(() => paidKey), ...freeModels.map(() => freeKey)];
+    candidateTiers = [...paidModels.map(() => 'simple'), ...freeModels.map(() => 'free')];
+  }
+  if (!candidates.length || (included && !candidateKeys?.some(Boolean))) {
     return json(
       res,
       tier === "custom" ? 400 : 503,
@@ -265,7 +288,7 @@ async function handleChat(req, res, cors) {
       : integrations.integrations.find((item) => item.id === selectedId);
     if (!selected) return json(res, 412, { ok: false, errorKey: 'selected_openai_key_unavailable' }, cors);
     providerKey = selected.key;
-  } else if (!providerKey) {
+  } else if (!providerKey && !included) {
     return json(res, 503, { ok: false, errorKey: 'ai_not_configured' }, cors);
   }
 
@@ -316,7 +339,8 @@ async function handleChat(req, res, cors) {
         const toolChoice = importMode && round === 0
           ? { type: 'function', function: { name: 'update_targeting' } }
           : 'auto';
-        const request = upstreamRequest(provider, providerKey, model, convo, ac.signal, { tools: availableTools, toolChoice });
+        const request = upstreamRequest(provider, candidateKeys?.[modelIdx] || providerKey, model, convo, ac.signal,
+          { tools: availableTools, toolChoice, maxTokens: included ? 2_048 : undefined });
         upstream = await fetch(request.url, request.options);
       } catch {
         clearTimeout(timeout);
@@ -359,7 +383,8 @@ async function handleChat(req, res, cors) {
       // — où l'on peut avoir basculé — et "custom").
       if (!announced) {
         announced = true;
-        sendEvent("model.info", { provider, tier, model, fallback: modelIdx > 0 });
+        sendEvent("model.info", { provider, tier: candidateTiers?.[modelIdx] || tier, model,
+          fallback: budgetFallback || modelIdx > 0 });
       }
 
       const { assistantContent, calls } = await readModelStream(upstream.body, (delta) => {
