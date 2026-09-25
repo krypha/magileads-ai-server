@@ -15,13 +15,19 @@ test('import mode streams criteria, refuses extraction before approval, then lau
     try {
       if (req.url === '/targeting/google/generate-maps-search-urls') {
         generators++;
-        return res.end(JSON.stringify({ state: true, google_maps_search_urls: ['https://www.google.com/maps/search/dentistes+Lyon'] }));
+        const body = JSON.parse(raw);
+        if (generators === 2) {
+          assert.equal(body.search, 'plombiers');
+          assert.deepEqual(body.locations, ['Bordeaux']);
+        }
+        return res.end(JSON.stringify({ state: true, google_maps_search_urls: [`https://www.google.com/maps/search/${body.search}+${body.locations?.[0] ?? ''}`] }));
       }
       if (req.url === '/targeting/google/extract-maps-search') {
         extracts++;
         const body = JSON.parse(raw);
         if (body.contact_list_id === 42) {
           assert.equal(body.contact_list_name, null);
+          assert.equal(body.max_results, 37);
           return res.end(JSON.stringify({ state: true, contact_list_id: 42 }));
         }
         assert.equal(body.contact_list_name, 'Prospects Lyon');
@@ -84,16 +90,23 @@ test('import mode streams criteria, refuses extraction before approval, then lau
 
     const approved = [...first, { role: 'assistant', content: 'Cible : dentistes à Lyon. Validez ?' },
       { role: 'user', content: 'La cible me convient : crée la liste « Prospects Lyon » et lance la recherche.' }];
-    const after = await chat(approved, 'import');
+    const after = await chat(approved);
     assert.match(after, /event: targeting.criteria/);
     assert.match(after, /"creates_list":true/);
     assert.match(after, /event: assistant.card/);
     assert.match(after, /"kind":"lists","items":\[\{"id":70657,"name":"Prospects Lyon"\}\]/);
     assert.equal(generators, 1);
     assert.equal(extracts, 1);
+    const typedGo = await chat([...first, { role: 'assistant', content: 'Cible proposée.' },
+      { role: 'user', content: 'go' }], 'import');
+    assert.match(typedGo, /event: targeting.criteria/);
+    assert.doesNotMatch(typedGo, /"creates_list":true/);
+    assert.equal(generators, 1);
+    assert.equal(extracts, 1);
     const localized = [...first, { role: 'assistant', content: 'Cible : dentistes à Lyon. Validez ?' },
       { role: 'user', content: 'The target works for me: add the results to “Liste existante” (ID 42) and launch the search.' }];
-    const existing = await chat(localized, 'import', { contact_list_id: 42 });
+    const existing = await chat(localized, 'import', { contact_list_id: 42,
+      targeting: { source: 'google_maps', activity: 'plombiers', cities: ['Bordeaux'], max_results: 37 } });
     assert.match(existing, /"kind":"lists","items":\[\{"id":42,"name":"Liste existante"\}\]/);
     assert.equal(generators, 2);
     assert.equal(extracts, 2);

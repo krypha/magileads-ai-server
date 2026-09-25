@@ -25,6 +25,7 @@ import { getMe, listOpenAiIntegrations } from "./magileads.js";
 import { AI_TOOLS, TOOL_LABELS, CREATES_LIST, executeTool } from "./tools.js";
 import { buildSystemPrompt } from "./prompt.js";
 import { MODEL_PROVIDERS, readModelStream, resolveModels, upstreamRequest } from './model-providers.js';
+import { approvedRunTool, approvedToolArgs, parseImportApproval } from './import-approval.js';
 
 const PORT = Number(process.env.PORT) || 8787;
 const AI_API_KEY = process.env.AI_API_KEY;
@@ -61,23 +62,14 @@ function explicitImportApproval(messages, submitted) {
   if (users.length < 2 || !messages.slice(0, -1).some(message => message.role === 'assistant')) return null;
   const last = messages.at(-1);
   if (last?.role !== 'user') return null;
-  // The import card sends the chosen destination separately from its localized
-  // display text. Never infer an existing-list ID from a model response.
-  if (submitted && typeof submitted === 'object' && !Array.isArray(submitted)) {
-    const { list_name: name, contact_list_id: listId } = submitted;
-    if (typeof name === 'string' && name.trim() && name.trim().length <= 80 && listId == null) {
-      return { name: name.trim(), listId: null };
-    }
-    if (Number.isSafeInteger(listId) && listId > 0 && name == null) {
-      return { name: null, listId };
-    }
-    return null;
-  }
+  // The UI sends the reviewed destination and criteria independently of the
+  // translated text. The server checks and enforces every supported field.
+  if (submitted != null) return parseImportApproval(submitted);
   const text = last.content.trim();
   if (!/^(?:(?:oui|ok|d'accord)[,!.\s]+)?(?:je\s+)?(?:valide\b|go\b|c['’]est bon\b|la cible me convient\b)/i.test(text)) return null;
   if (/^(?:je\s+)?valide\s+pas\b|^(?:non|pas maintenant)\b/i.test(text)) return null;
   const name = text.match(/\bliste\s+[«"]([^»"]+)[»"]/i)?.[1]?.trim() ?? null;
-  return { name, listId: null };
+  return { name, listId: null, criteria: null, filters: null, accountId: null };
 }
 
 /* --------------------------------- helpers -------------------------------- */
@@ -220,9 +212,16 @@ async function handleChat(req, res, cors) {
   const importMode = body.mode === 'import' || allMessages.find(message => message.role === 'user')?.content.startsWith(IMPORT_CONTEXT_PREFIX);
   const clientMessages = allMessages.slice(-MAX_MESSAGES);
   if (!clientMessages.length) return json(res, 400, { ok: false, errorKey: "empty" }, cors);
-  const approval = importMode ? explicitImportApproval(allMessages, body.import_approval) : null;
+  // The current import UI has a separate review form. A typed "go" is not its
+  // final confirmation; legacy clients without an explicit mode keep their
+  // historical text approval for compatibility.
+  const approval = importMode && (body.mode !== 'import' || body.import_approval != null)
+    ? explicitImportApproval(allMessages, body.import_approval) : null;
   if (body.import_approval != null && !approval) {
     return json(res, 400, { ok: false, errorKey: 'invalid_import_approval' }, cors);
+  }
+  if (approval?.criteria) {
+    clientMessages.at(-1).content += `\n\nCritères confirmés dans le formulaire : ${JSON.stringify(approval.criteria)}. Utilise uniquement la source et les valeurs confirmées.`;
   }
 
   // The user-facing tier maps to real model(s) HERE.
@@ -270,7 +269,9 @@ async function handleChat(req, res, cors) {
     return json(res, 503, { ok: false, errorKey: 'ai_not_configured' }, cors);
   }
 
-  const convo = [{ role: "system", content: buildSystemPrompt(profile, { mode: importMode ? 'import' : 'chat' }) }, ...clientMessages];
+  const convo = [{ role: "system", content: buildSystemPrompt(profile, { mode: importMode ? 'import' : 'chat' }) },
+    ...(body.mode === 'import' ? [{ role: 'system', content: 'Cette interface utilise un formulaire de confirmation distinct après la proposition de cible. Un simple « go » écrit dans le chat ne lance rien : invite l’utilisateur à ouvrir « Vérifier la cible » puis à confirmer. Seul le clic final autorise un outil run_*.' }] : []),
+    ...clientMessages];
 
   res.writeHead(200, {
     "Content-Type": "text/event-stream; charset=utf-8",
@@ -310,7 +311,8 @@ async function handleChat(req, res, cors) {
         const availableTools = !importMode
           ? AI_TOOLS.filter(tool => !IMPORT_ONLY_TOOLS.has(tool.function.name))
           : AI_TOOLS.filter(tool => IMPORT_READ_TOOLS.has(tool.function.name) ||
-            (approval && targetingReady && !launchAttempted && CREATES_LIST.includes(tool.function.name)));
+            (approval && targetingReady && !launchAttempted && CREATES_LIST.includes(tool.function.name) &&
+              (!approvedRunTool(approval) || tool.function.name === approvedRunTool(approval))));
         const toolChoice = importMode && round === 0
           ? { type: 'function', function: { name: 'update_targeting' } }
           : 'auto';
@@ -387,38 +389,31 @@ async function handleChat(req, res, cors) {
         const createsList = CREATES_LIST.includes(c.name);
         let result;
         const permitted = !importMode ? !IMPORT_ONLY_TOOLS.has(c.name)
-          : IMPORT_READ_TOOLS.has(c.name) || (approval && targetingReady && createsList && !launchAttempted);
+          : IMPORT_READ_TOOLS.has(c.name) || (approval && targetingReady && createsList && !launchAttempted &&
+            (!approvedRunTool(approval) || c.name === approvedRunTool(approval)));
         if (!permitted) {
           result = JSON.stringify({ error: createsList
             ? !approval ? 'validation_explicitement_requise' : !targetingReady ? 'cible_incomplete' : 'lancement_deja_effectue'
             : 'outil_indisponible_pour_ce_mode' });
         } else {
           if (createsList) launchAttempted = true;
-          let args = c.args;
-          if (importMode && createsList && approval) {
-            try {
-              const parsed = JSON.parse(c.args || '{}');
-              if (approval.listId != null) {
-                delete parsed.list_name;
-                parsed.contact_list_id = approval.listId;
-              } else if (approval.name) {
-                delete parsed.contact_list_id;
-                parsed.list_name = approval.name;
-              }
-              args = JSON.stringify(parsed);
-            } catch { /* executeTool will report invalid JSON */ }
+          const args = importMode && (createsList || c.name === 'update_targeting' || c.name === 'count_database_targeting')
+            ? approvedToolArgs(c.name, c.args, approval) : c.args;
+          if (args == null) {
+            result = JSON.stringify({ error: 'arguments_de_lancement_invalides' });
+          } else {
+            if (c.name !== 'update_targeting') sendEvent('tool.progress', {
+              tool: c.name, label: TOOL_LABELS[c.name] || c.name.replace(/_/g, ' '),
+              status: 'running', creates_list: createsList,
+            });
+            result = await executeTool(c.name, args, auth, { profile });
+            let launched = false;
+            try { launched = Boolean(JSON.parse(result).list_id); } catch { /* tool returned an error */ }
+            if (c.name !== 'update_targeting') sendEvent('tool.progress', {
+              tool: c.name, label: TOOL_LABELS[c.name] || c.name.replace(/_/g, ' '),
+              status: 'completed', creates_list: createsList && launched,
+            });
           }
-          if (c.name !== 'update_targeting') sendEvent('tool.progress', {
-            tool: c.name, label: TOOL_LABELS[c.name] || c.name.replace(/_/g, ' '),
-            status: 'running', creates_list: createsList,
-          });
-          result = await executeTool(c.name, args, auth, { profile });
-          let launched = false;
-          try { launched = Boolean(JSON.parse(result).list_id); } catch { /* tool returned an error */ }
-          if (c.name !== 'update_targeting') sendEvent('tool.progress', {
-            tool: c.name, label: TOOL_LABELS[c.name] || c.name.replace(/_/g, ' '),
-            status: 'completed', creates_list: createsList && launched,
-          });
         }
 
         if (importMode && c.name === 'update_targeting') {
@@ -434,7 +429,7 @@ async function handleChat(req, res, cors) {
           try {
             const preview = JSON.parse(result);
             if (Number.isSafeInteger(preview.count) && preview.count >= 0) {
-              sendEvent('targeting.count', { count: preview.count });
+              sendEvent('targeting.count', { count: preview.count, filters: preview.criteria_applied?.filters ?? [] });
             }
           } catch { /* failed previews cannot unlock validation */ }
         }
