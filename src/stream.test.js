@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
+import { sendScopeFixture } from '../test/scope-fixture.mjs';
 
 test('real HTTP chat streams API-derived cards and never forwards credentials to the model', { timeout: 20000 }, async () => {
   let modelCalls = 0;
@@ -18,6 +19,7 @@ test('real HTTP chat streams API-derived cards and never forwards credentials to
       try {
         assert.ok(!body.includes('caller-test'));
         const request = JSON.parse(body);
+        if (sendScopeFixture(request, res)) return;
         assert.ok(!request.tools.some(tool => tool.function.name === 'delete_contacts_by_selection'));
         res.writeHead(200, { 'Content-Type': 'text/event-stream' });
         const delta = modelCalls++ === 0

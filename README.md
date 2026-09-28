@@ -103,8 +103,48 @@ L'IA incluse refuse avant l'appel au modèle un dernier message de plus de
 4 000 caractères ou un historique de plus de 24 000 caractères (`413
 shared_prompt_too_large`). Chaque réponse est limitée à 2 048 tokens par
 tour de modèle. Une clé OpenAI personnelle n'est pas soumise à ces limites.
-Ce garde-fou réduit le coût par requête ; un quota journalier exact par
-compte nécessitera un endpoint de réservation/compteur dans l'API Magileads.
+Un budget par requête de **0,03 USD** (`AI_INCLUDED_MAX_REQUEST_USD`, maximum
+configurable 0,10 USD) couvre le contrôle du périmètre et tous les tours d’outils.
+Avant chaque appel, le serveur réserve une estimation prudente incluant le
+prompt système, les messages, les schémas des outils, leurs résultats et la
+sortie maximale. L’estimation utilise les octets UTF-8, une marge de framing et
+20 % de sécurité ; ce n’est pas un comptage exact par tokenizer. Le coût
+`usage.cost` renvoyé par OpenRouter remplace ensuite la réservation ; s’il manque,
+elle est conservée. Le tour suivant est refusé s’il dépasse le budget. Les
+actions déjà effectuées et leurs cartes restent transmises ; aucun lancement
+n’est annulé ni répété automatiquement.
+
+OpenRouter reçoit `provider.max_price` avec, par défaut, **0,25 USD/M tokens
+d’entrée**, **1,50 USD/M tokens de sortie**, et `request: 0`. Les plafonds
+s’appliquent aux providers sélectionnés et à leurs fallbacks. Réglages :
+`AI_INCLUDED_MAX_INPUT_USD_PER_M`, `AI_INCLUDED_MAX_OUTPUT_USD_PER_M`. Le repli
+gratuit accepte uniquement `openrouter/free` ou un slug `:free`, avec des prix
+maximums à zéro. Les règles de volume restent actives après ce repli : douze
+appels d’outils maximum, trois campagnes consultées en détail maximum, contexte
+plafonné à 120 000 octets avec le framing. Les rapports par période/jour exigent
+une sélection de une à trois campagnes ; le résumé global reste disponible.
+
+**Périmètre Magileads pour tous les comptes et providers, clés personnelles
+comprises :** une classification sémantique précède toute réponse et tout outil
+métier. Elle n’a accès qu’à `classify_magileads_request`, sans accès aux données
+métier. Les questions hors application/prospection B2B sont refusées ; ajouter
+le mot « Magileads » ne suffit pas. Les confirmations, noms et ID restent
+compris grâce aux tours précédents. Un audit de toutes les campagnes est refusé
+pour l’IA incluse avant les outils. Le prompt principal rappelle ce périmètre.
+Si le contrôleur est indisponible ou sa sortie invalide, aucun outil métier
+n’est exécuté. Ce contrôle sémantique repose sur un modèle : il réduit les
+détournements, sans garantir une classification parfaite.
+
+Les compteurs de budget sont locaux à la requête et disparaissent à sa fin.
+Un quota journalier exact par compte (y compris entre instances ou requêtes
+concurrentes) nécessitera un endpoint de réservation/compteur dans l’API
+Magileads. Le plafond partagé quotidien reste appliqué par OpenRouter. La clé
+OpenAI personnelle lève les plafonds de coût/volume de l’IA incluse, jamais le
+périmètre.
+
+Vérification locale : `node --test src/*.test.js`. Vérification réelle de la
+classification, avec de petites requêtes facturées par le provider, sans accès
+aux données Magileads : `node --env-file=.env examples/policy-model-smoke.mjs`.
 
 ---
 

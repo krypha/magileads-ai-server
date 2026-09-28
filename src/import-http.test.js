@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
+import { sendScopeFixture } from '../test/scope-fixture.mjs';
 
 test('import mode streams criteria, refuses extraction before approval, then launches once with the approved name', { timeout: 20000 }, async () => {
   let extracts = 0;
@@ -37,6 +38,7 @@ test('import mode streams criteria, refuses extraction before approval, then lau
       if (req.url === '/chat/completions') {
         const body = JSON.parse(raw);
         assert.ok(!raw.includes('caller-secret'));
+        if (sendScopeFixture(body, res)) return;
         const tools = body.messages.filter(item => item.role === 'tool');
         let delta;
         if (body.tool_choice === 'auto' && !tools.length) {

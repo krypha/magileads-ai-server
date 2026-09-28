@@ -8,6 +8,58 @@ Le serveur conserve les outils de lecture/ciblage existants et ajoute un catalog
 
 ## Comportement
 
+### Périmètre et budget des demandes
+
+Tous les comptes, y compris les administrateurs et les clés OpenAI personnelles,
+passent par une classification sémantique Magileads avant les outils métier.
+Le contrôleur reçoit les derniers tours pour comprendre les confirmations et le
+dernier message complet ; aucun outil de données ne lui est disponible.
+Les messages de prospection B2B sont autorisés, les questions indépendantes de
+culture générale sont refusées. La présence du nom Magileads ou du contexte
+import n’autorise pas une question hors sujet. Si le contrôle échoue, le serveur
+refuse de lancer l’assistant. Le prompt métier rappelle les mêmes règles.
+
+L’IA incluse (`level=user`, OpenRouter) dispose d’un budget estimé de 0,03 USD par
+requête, vérifié à chaque appel : contrôle initial, texte, outils et résultats
+des outils. Les prix des providers sont plafonnés à 0,25 USD/M en entrée et
+1,50 USD/M en sortie par `provider.max_price`, sans frais fixes de requête. Les
+réservations prudentes sont remplacées par `usage.cost` si disponible, conservées
+sinon. Les paramètres `.env` figurent dans README.md ; aucun stockage de données
+ni quota utilisateur persistant n’est ajouté. Le repli gratuit impose des prix
+nuls. Douze appels d’outils et trois campagnes en détail maximum sont permis.
+Un audit global demande une sélection de une à trois campagnes ou une clé
+OpenAI personnelle. Lister les campagnes et lire le reporting global restent
+possibles. Les clés personnelles lèvent ces plafonds, jamais le périmètre.
+
+Événements d’erreur ajoutés, avec le contrat existant :
+
+```text
+event: assistant.error
+data: {"code":"off_topic"}
+```
+
+Codes : `off_topic` (hors Magileads), `request_too_broad` (audit global, quatrième
+campagne ou treizième outil), `request_budget_exceeded` (prochain appel trop
+coûteux/contexte trop grand), `scope_check_unavailable` (contrôle invalide ou
+indisponible). Le front traduit les quatre codes dans ses cinq langues. Les
+cartes et mutations déjà confirmées restent disponibles après une interruption.
+Les événements existants, dont `targeting.criteria`, `creates_list:true` et la
+carte `lists` suivant une extraction, sont conservés.
+
+Tests : `node --test src/*.test.js` couvre les blocages avant outil, la croissance
+du contexte, les limites de campagnes, le repli gratuit et le contrat import.
+`examples/policy-model-smoke.mjs` vérifie la classification contre les vrais
+modèles OpenRouter sans appeler les API métier Magileads.
+
+Vérifications réelles lors de cette modification : les cas hors sujet, l’audit
+global, l’audit d’un ID unique, la rédaction B2B, l’aide Mailgun et les confirmations
+ont été exercés avec Flash, `openrouter/free` et Nemotron Ultra gratuit. Le front
+local et le serveur modifié ont été testés avec le vrai compte utilisateur #391 :
+refus visible de la question sur l’Amérique, refus de l’audit global, puis réponse
+autorisée sur la connexion d’un expéditeur sans aucune mutation. La limite de coût
+après croissance des outils et les flux d’extraction sont vérifiés avec des API
+simulées ; aucun audit massif ni import réel n’a été lancé pour ce chantier.
+
 - Fournisseur du modèle : OpenRouter reste le choix partagé par défaut. OpenAI utilise l'intégration déjà enregistrée dans le compte Magileads actif. Le serveur IA vérifie l'identité avec `/users/me`, lit `/external-api-keys` à chaque appel et utilise la clé OpenAI en mémoire pendant cet appel seulement. Il ne dispose d'aucun stockage de clés ou volume `/data`. Claude est visible mais désactivé tant que l'API Magileads ne prend pas en charge son intégration. Le palier « Gratuit » n'est proposé que pour OpenRouter : les appels OpenAI peuvent être facturés au propriétaire de la clé.
 
 - Suppression retirée des outils et des consignes. Refus des anciens appels, des noms inconnus et des requêtes DELETE dans le client du serveur IA. Aucun bouton de confirmation de suppression métier dans v5. La suppression locale d’une conversation reste disponible.

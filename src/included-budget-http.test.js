@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
+import { sendScopeFixture } from '../test/scope-fixture.mjs';
 
 test('regular users get capped Flash, then free, and oversized prompts stop before upstream', { timeout: 20000 }, async () => {
   let remaining = 1;
@@ -17,6 +18,7 @@ test('regular users get capped Flash, then free, and oversized prompts stop befo
     }
     if (req.url === '/chat/completions') {
       let raw = ''; for await (const chunk of req) raw += chunk;
+      if (sendScopeFixture(JSON.parse(raw), res)) return;
       calls.push({ key: req.headers.authorization, body: JSON.parse(raw) });
       res.writeHead(200, { 'Content-Type': 'text/event-stream' });
       return res.end('data: {"choices":[{"delta":{"content":"OK"}}]}\n\ndata: [DONE]\n\n');
@@ -30,7 +32,7 @@ test('regular users get capped Flash, then free, and oversized prompts stop befo
   const child = spawn(process.execPath, [new URL('./server.js', import.meta.url).pathname.replace(/^\/(\w:)/, '$1')], {
     env: { ...process.env, PORT: String(port), MAGILEADS_API_BASE: upstreamUrl, AI_API_URL: upstreamUrl,
       AI_API_KEY: 'main-key', AI_INCLUDED_API_KEY: 'included-key', AI_API_KEY_FREE: 'free-key',
-      AI_MODEL: 'admin-model', AI_MODEL_FREE: 'free-model', AI_MODEL_INCLUDED: 'deepseek/deepseek-v4-flash' },
+      AI_MODEL: 'admin-model', AI_MODEL_FREE: 'fixture/model:free', AI_MODEL_INCLUDED: 'deepseek/deepseek-v4-flash' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   const chat = (content) => fetch(`http://127.0.0.1:${port}/ai/chat`, {
@@ -47,11 +49,12 @@ test('regular users get capped Flash, then free, and oversized prompts stop befo
     assert.equal(calls[0].key, 'Bearer included-key');
 
     remaining = 0;
-    const free = await chat('Autre question');
+    const free = await chat('Mes listes');
     assert.equal(free.status, 200);
     assert.match(await free.text(), /"tier":"free"/);
-    assert.equal(calls[1].body.model, 'free-model');
+    assert.equal(calls[1].body.model, 'fixture/model:free');
     assert.equal(calls[1].key, 'Bearer free-key');
+    assert.deepEqual(calls[1].body.provider.max_price, { prompt: 0, completion: 0, request: 0 });
 
     const heavy = await chat('x'.repeat(4001));
     assert.equal(heavy.status, 413);

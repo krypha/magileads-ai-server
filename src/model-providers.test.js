@@ -46,3 +46,14 @@ test('OpenAI SSE streams text and assembles split tool arguments', async () => {
   assert.equal(result.assistantContent, 'Je lis vos listes.');
   assert.deepEqual(result.calls, [{ id: 'tool-1', name: 'list_contact_lists', args: '{"sort":"contacts"}' }]);
 });
+
+test('OpenRouter usage-only final frames are captured and price ceilings stay out of OpenAI requests', async () => {
+  const stream = new Response('data: {"choices":[],"usage":{"cost":0.0004}}\n\ndata: [DONE]\n\n').body;
+  assert.deepEqual((await readModelStream(stream, () => {})).usage, { cost: 0.0004 });
+  const options = { maxTokens: 512, maxPrice: { prompt: 0.25, completion: 1.5, request: 0 }, disableReasoning: true };
+  const router = JSON.parse(upstreamRequest('openrouter', 'key', 'model', [], undefined, options).options.body);
+  assert.deepEqual(router.provider.max_price, options.maxPrice);
+  assert.equal(router.provider.require_parameters, true);
+  assert.equal(router.reasoning.effort, 'none');
+  assert.equal(JSON.parse(upstreamRequest('openai', 'key', 'model', [], undefined, options).options.body).provider, undefined);
+});

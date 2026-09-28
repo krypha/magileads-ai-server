@@ -26,8 +26,9 @@ import { AI_TOOLS, TOOL_LABELS, CREATES_LIST, executeTool } from "./tools.js";
 import { buildSystemPrompt } from "./prompt.js";
 import { MODEL_PROVIDERS, readModelStream, resolveModels, upstreamRequest } from './model-providers.js';
 import { approvedRunTool, approvedToolArgs, parseImportApproval } from './import-approval.js';
-import { checkIncludedBudget, sharedPromptTooLarge } from './included-budget.js';
+import { checkIncludedBudget, sharedPromptTooLarge, RequestBudget, INCLUDED_MAX_PRICE, FREE_MAX_PRICE } from './included-budget.js';
 import { redactHiddenAuditText } from './assistant-policy.js';
+import { IncludedWorkload, SCOPE_TOOL, scopeConversation, scopeDecision, scopeRequestOptions } from './request-policy.js';
 
 const PORT = Number(process.env.PORT) || 8787;
 const AI_API_KEY = process.env.AI_API_KEY;
@@ -215,6 +216,7 @@ async function handleChat(req, res, cors) {
   const importMode = body.mode === 'import' || allMessages.find(message => message.role === 'user')?.content.startsWith(IMPORT_CONTEXT_PREFIX);
   const clientMessages = allMessages.slice(-MAX_MESSAGES);
   if (!clientMessages.length) return json(res, 400, { ok: false, errorKey: "empty" }, cors);
+  if (clientMessages.at(-1).role !== 'user') return json(res, 400, { ok: false, errorKey: 'last_message_must_be_user' }, cors);
   // The current import UI has a separate review form. A typed "go" is not its
   // final confirmation; legacy clients without an explicit mode keep their
   // historical text approval for compatibility.
@@ -249,7 +251,8 @@ async function handleChat(req, res, cors) {
   if (included) {
     const paidKey = process.env.AI_INCLUDED_API_KEY || AI_API_KEY;
     const freeKey = process.env.AI_API_KEY_FREE || AI_API_KEY || paidKey;
-    const freeModels = resolveModels('openrouter', 'free');
+    // A misconfigured paid slug must never be used as the shared free fallback.
+    const freeModels = resolveModels('openrouter', 'free').filter(model => model === 'openrouter/free' || model.endsWith(':free'));
     const paidAvailable = await checkIncludedBudget(paidKey);
     budgetFallback = !paidAvailable;
     const paidModels = paidAvailable ? [process.env.AI_MODEL_INCLUDED || 'deepseek/deepseek-v4-flash'] : [];
@@ -295,6 +298,9 @@ async function handleChat(req, res, cors) {
   const convo = [{ role: "system", content: buildSystemPrompt(profile, { mode: importMode ? 'import' : 'chat' }) },
     ...(body.mode === 'import' ? [{ role: 'system', content: 'Cette interface utilise un formulaire de confirmation distinct après la proposition de cible. Un simple « go » écrit dans le chat ne lance rien : invite l’utilisateur à ouvrir « Vérifier la cible » puis à confirmer. Seul le clic final autorise un outil run_*.' }] : []),
     ...clientMessages];
+  if (included) convo[0].content += '\nIA INCLUSE : au plus trois campagnes en audit détaillé et douze appels d’outils par demande. Pour un audit global, demande de choisir une à trois campagnes ou de connecter une clé OpenAI personnelle. Les listes et résumés globaux restent disponibles. Si le serveur bloque le coût ou le volume, arrête les outils et invite à réduire le périmètre.';
+  const requestBudget = included ? new RequestBudget() : null;
+  const workload = included ? new IncludedWorkload() : null;
 
   res.writeHead(200, {
     "Content-Type": "text/event-stream; charset=utf-8",
@@ -318,43 +324,55 @@ async function handleChat(req, res, cors) {
   // Index du modèle candidat en cours : on n'avance QUE sur un échec récupérable,
   // et le modèle retenu est conservé pour les tours suivants de la conversation.
   let modelIdx = 0;
-  let announced = false;
+  let announcedModel = null;
   let produced = false; // texte OU appel d'outil -> sert a detecter un modele muet
   let failed = false;
   let launchAttempted = false;
   let targetingReady = false;
 
   /** Ouvre le flux upstream, en basculant sur le candidat suivant si besoin. */
-  async function openUpstream(round) {
+  async function openUpstream(round, scopeCheck = false) {
     while (modelIdx < candidates.length) {
       const model = candidates[modelIdx];
       const timeout = setTimeout(() => ac.abort(), CALL_TIMEOUT_MS);
       let upstream;
       try {
-        const availableTools = !importMode
+        const availableTools = scopeCheck ? [SCOPE_TOOL] : !importMode
           ? AI_TOOLS.filter(tool => !IMPORT_ONLY_TOOLS.has(tool.function.name))
           : AI_TOOLS.filter(tool => IMPORT_READ_TOOLS.has(tool.function.name) ||
             (approval && targetingReady && !launchAttempted && CREATES_LIST.includes(tool.function.name) &&
               (!approvedRunTool(approval) || tool.function.name === approvedRunTool(approval))));
-        const toolChoice = importMode && round === 0
+        const toolChoice = scopeCheck ? { type: 'function', function: { name: SCOPE_TOOL.function.name } } : importMode && round === 0
           ? { type: 'function', function: { name: 'update_targeting' } }
           : 'auto';
-        const request = upstreamRequest(provider, candidateKeys?.[modelIdx] || providerKey, model, convo, ac.signal,
-          { tools: availableTools, toolChoice, maxTokens: included ? 2_048 : undefined });
+        const messages = scopeCheck ? scopeConversation(clientMessages) : convo;
+        const scopeOptions = scopeRequestOptions(provider, model);
+        const maxTokens = scopeCheck ? scopeOptions.maxTokens : included ? 2_048 : undefined;
+        const maxPrice = included ? candidateTiers[modelIdx] === 'free' ? FREE_MAX_PRICE : INCLUDED_MAX_PRICE : undefined;
+        if (requestBudget?.exhausted) {
+          clearTimeout(timeout);
+          return { error: 'request_budget_exceeded' };
+        }
+        const reservation = requestBudget?.reserve(messages, availableTools, maxTokens, maxPrice);
+        if (requestBudget && !reservation) {
+          clearTimeout(timeout);
+          return { error: 'request_budget_exceeded' };
+        }
+        const request = upstreamRequest(provider, candidateKeys?.[modelIdx] || providerKey, model, messages, ac.signal,
+          { tools: availableTools, toolChoice, maxTokens, maxPrice, disableReasoning: scopeCheck && scopeOptions.disableReasoning });
         upstream = await fetch(request.url, request.options);
+        if (upstream.ok && upstream.body) return { upstream, model, reservation, timeout };
       } catch {
         clearTimeout(timeout);
         return { error: "unreachable" };
       }
       clearTimeout(timeout);
 
-      if (upstream.ok && upstream.body) return { upstream, model };
-
       await upstream.body?.cancel().catch(() => undefined);
       // Provider errors can echo account metadata. Never log response bodies.
       console.error(`[ai] upstream ${provider} ${upstream.status} (${model})`);
       // Modèle disparu / saturé / payant : on tente le candidat suivant s'il y en a.
-      if (RETRIABLE_UPSTREAM.includes(upstream.status) && modelIdx + 1 < candidates.length) {
+      if ((RETRIABLE_UPSTREAM.includes(upstream.status) || (included && [401, 403].includes(upstream.status))) && modelIdx + 1 < candidates.length) {
         modelIdx++;
         continue;
       }
@@ -363,31 +381,59 @@ async function handleChat(req, res, cors) {
     return { error: "no_model" };
   }
 
+  async function readOpened(opened, onText) {
+    try {
+      const answer = await readModelStream(opened.upstream.body, onText);
+      requestBudget?.settle(opened.reservation, answer.usage);
+      return answer;
+    } finally { clearTimeout(opened.timeout); }
+  }
+
+  function fail(code) {
+    failed = true;
+    if (!closed) sendEvent('assistant.error', { code });
+  }
+
   try {
-    for (let round = 0; round < MAX_ROUNDS && !closed; round++) {
+    // Every account/provider goes through the same semantic scope gate. Its
+    // only tool is a classifier: it cannot read or modify Magileads data.
+    const checked = await openUpstream(0, true);
+    let decision = null;
+    if (!checked.error) {
+      try { decision = scopeDecision((await readOpened(checked, () => {})).calls); } catch { /* Fail closed. */ }
+    }
+    if (checked.error || !decision) {
+      fail(checked.error === 'request_budget_exceeded' ? checked.error
+        : provider !== 'openrouter' && [401, 403].includes(checked.status) ? 'provider_key_invalid' : 'scope_check_unavailable');
+    } else if (decision === 'off_topic') {
+      fail('off_topic');
+    } else if (included && decision === 'broad_campaign_audit') {
+      fail('request_too_broad');
+    }
+    chatRounds: for (let round = 0; round < MAX_ROUNDS && !closed && !failed; round++) {
       const opened = await openUpstream(round);
       if (opened.error) {
         if (!closed) {
           failed = true;
           sendEvent('assistant.error', {
-            code: provider !== 'openrouter' && [401, 403].includes(opened.status)
+            code: opened.error === 'request_budget_exceeded' ? opened.error : provider !== 'openrouter' && [401, 403].includes(opened.status)
               ? 'provider_key_invalid'
               : 'provider_unavailable',
           });
         }
         break;
       }
-      const { upstream, model } = opened;
+      const { model } = opened;
 
       // On annonce le modèle réellement utilisé (utile pour les paliers "free"
       // — où l'on peut avoir basculé — et "custom").
-      if (!announced) {
-        announced = true;
+      if (announcedModel !== model) {
+        announcedModel = model;
         sendEvent("model.info", { provider, tier: candidateTiers?.[modelIdx] || tier, model,
           fallback: budgetFallback || modelIdx > 0 });
       }
 
-      const { assistantContent, calls } = await readModelStream(upstream.body, (delta) => {
+      const { assistantContent, calls } = await readOpened(opened, (delta) => {
         produced = true;
         sendText(delta);
       });
@@ -397,6 +443,7 @@ async function handleChat(req, res, cors) {
         break;
       }
       if (!calls.length) break; // the model produced its final answer
+      if (requestBudget?.exhausted) { fail('request_budget_exceeded'); break; }
       produced = true;
 
       convo.push({
@@ -411,6 +458,8 @@ async function handleChat(req, res, cors) {
 
       for (const c of calls) {
         if (closed) break;
+        const limitError = workload?.check(c.name, c.args);
+        if (limitError) { fail(limitError); break chatRounds; }
         const createsList = CREATES_LIST.includes(c.name);
         let result;
         const permitted = !importMode ? !IMPORT_ONLY_TOOLS.has(c.name)
@@ -476,6 +525,7 @@ async function handleChat(req, res, cors) {
         }
         if (changesData(c.name, result, c.args)) sendEvent("assistant.changed", {});
         for (const card of cardsForTool(c.name, result, c.args)) sendEvent("assistant.card", card);
+        workload?.observe(c.name, result);
         convo.push({ role: "tool", tool_call_id: c.id, content: result });
       }
     }

@@ -31,14 +31,16 @@ export function resolveModels(provider, tier, customModel) {
 }
 
 /** Fixed provider hosts. A browser cannot supply a URL or route a key elsewhere. */
-export function upstreamRequest(provider, apiKey, model, conversation, signal, { tools = AI_TOOLS, toolChoice = 'auto', maxTokens } = {}) {
+export function upstreamRequest(provider, apiKey, model, conversation, signal, { tools = AI_TOOLS, toolChoice = 'auto', maxTokens, maxPrice, disableReasoning = false } = {}) {
   return {
     url: `${URLS[provider]}/chat/completions`,
     options: {
       method: 'POST',
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ model, messages: conversation, tools, tool_choice: toolChoice, stream: true,
-        ...(maxTokens ? { max_tokens: maxTokens } : {}) }),
+        ...(maxTokens ? { max_tokens: maxTokens } : {}),
+        ...(provider === 'openrouter' && maxPrice ? { provider: { max_price: maxPrice, require_parameters: true } } : {}),
+        ...(provider === 'openrouter' && disableReasoning ? { reasoning: { effort: 'none' } } : {}) }),
       signal,
     },
   };
@@ -70,11 +72,14 @@ async function* sseFrames(stream) {
 /** Parse OpenRouter/OpenAI chat-completion SSE into text and tool calls. */
 export async function readModelStream(stream, onText) {
   let assistantContent = '';
+  let usage = null;
   const toolCalls = [];
   for await (const frame of sseFrames(stream)) {
     if (frame.data === '[DONE]') continue;
     let payload;
     try { payload = JSON.parse(frame.data); } catch { continue; }
+    if (payload.error || payload.choices?.some(choice => choice.finish_reason === 'error')) throw new Error('upstream_stream_error');
+    if (payload.usage) usage = payload.usage;
     const delta = payload.choices?.[0]?.delta;
     if (!delta) continue;
     if (typeof delta.content === 'string' && delta.content) {
@@ -92,6 +97,7 @@ export async function readModelStream(stream, onText) {
   }
   return {
     assistantContent,
+    usage,
     calls: toolCalls.filter(call => call?.name).map(call => ({
       id: call.id,
       name: call.name,

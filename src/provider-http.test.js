@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
+import { sendScopeFixture } from '../test/scope-fixture.mjs';
 
 test('OpenAI selects only a named integration owned by the active account, without local key routes', { timeout: 20000 }, async () => {
   let activeKey = 'sk-account-one-current';
@@ -26,11 +27,12 @@ test('OpenAI selects only a named integration owned by the active account, witho
     let raw = ''; for await (const chunk of req) raw += chunk;
     try {
       if (req.url === '/chat/completions') {
-        openaiCalls++;
         assert.equal(req.headers.authorization, `Bearer ${expectedKey}`);
         assert.ok(!raw.includes(expectedKey));
         assert.ok(!raw.includes('dropcontact-secret'));
         assert.equal(JSON.parse(raw).model, 'gpt-5.4-mini');
+        if (sendScopeFixture(JSON.parse(raw), res)) return;
+        openaiCalls++;
         res.writeHead(200, { 'Content-Type': 'text/event-stream' });
         return res.end('data: {"choices":[{"delta":{"content":"OpenAI works"}}]}\n\ndata: [DONE]\n\n');
       }
