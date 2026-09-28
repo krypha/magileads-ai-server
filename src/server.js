@@ -295,7 +295,8 @@ async function handleChat(req, res, cors) {
     return json(res, 503, { ok: false, errorKey: 'ai_not_configured' }, cors);
   }
 
-  const convo = [{ role: "system", content: buildSystemPrompt(profile, { mode: importMode ? 'import' : 'chat' }) },
+  const pageContext = /^\[(?:Screen context, not written by the user and not to be quoted|Screen context from the app, not written by the user)\]/.test(clientMessages.at(-1).content);
+  const convo = [{ role: "system", content: buildSystemPrompt(profile, { mode: importMode ? 'import' : 'chat', pageContext }) },
     ...(body.mode === 'import' ? [{ role: 'system', content: 'Cette interface utilise un formulaire de confirmation distinct après la proposition de cible. Un simple « go » écrit dans le chat ne lance rien : invite l’utilisateur à ouvrir « Vérifier la cible » puis à confirmer. Seul le clic final autorise un outil run_*.' }] : []),
     ...clientMessages];
   if (included) convo[0].content += '\nIA INCLUSE : au plus trois campagnes en audit détaillé et douze appels d’outils par demande. Pour un audit global, demande de choisir une à trois campagnes ou de connecter une clé OpenAI personnelle. Les listes et résumés globaux restent disponibles. Si le serveur bloque le coût ou le volume, arrête les outils et invite à réduire le périmètre.';
