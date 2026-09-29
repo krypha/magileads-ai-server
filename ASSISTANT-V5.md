@@ -177,7 +177,7 @@ simulées ; aucun audit massif ni import réel n’a été lancé pour ce chanti
 
 - Fournisseur du modèle : OpenRouter reste le choix partagé par défaut. OpenAI utilise l'intégration déjà enregistrée dans le compte Magileads actif. Le serveur IA vérifie l'identité avec `/users/me`, lit `/external-api-keys` à chaque appel et utilise la clé OpenAI en mémoire pendant cet appel seulement. Il ne dispose d'aucun stockage de clés ou volume `/data`. Claude est visible mais désactivé tant que l'API Magileads ne prend pas en charge son intégration. Le palier « Gratuit » n'est proposé que pour OpenRouter : les appels OpenAI peuvent être facturés au propriétaire de la clé.
 
-- L’assistant peut **préparer** une suppression. Dans la bulle d’une liste de contacts, le contexte de page lui demande de terminer par un bloc `[[ACTION]]{"type":"delete_contacts","list_id":42,"filter":{"mode":"and","values":[{"field_name":"7","type":"equals","value":"M."}]}}[[/ACTION]]`. Les deltas SSE transmettent ce bloc intact ; le front v5 vérifie le champ et la liste, calcule un aperçu par l’API, demande confirmation puis effectue lui-même l’action. Une question sans suppression ne doit pas produire de bloc.
+- L’assistant peut **préparer** une suppression de contacts filtrés depuis la page `/assistant` et la bulle. Le modèle termine par un bloc `[[ACTION]]{"type":"delete_contacts","list_id":42,"filter":{"mode":"and","values":[{"field_name":"7","type":"equals","value":"M."}]}}[[/ACTION]]`. Les deltas SSE transmettent ce bloc intact ; le même composant front v5 vérifie la liste et les champs, calcule un aperçu par l’API, demande confirmation puis effectue lui-même l’action. Sur `/assistant`, la liste doit être désignée ou choisie dans la conversation et vérifiée dans le compte actif ; dans la bulle, elle doit être celle ouverte à l’écran. Une question sans suppression ne doit pas produire de bloc.
 - Le serveur IA ne déclenche toujours **aucun DELETE** : ses outils de suppression, `run_operation` et le client API les refusent. Une confirmation textuelle dans `/assistant` n’autorise actuellement aucune suppression côté serveur. La suppression locale d’une conversation reste disponible.
 - Connexion Google/Microsoft ou SMTP/IMAP via les composants Expéditeurs existants. Les mots de passe du formulaire ne sont pas transmis à la fonction de chat ni enregistrés dans son historique. OAuth conserve le parcours et les contrôles de marque blanche existants.
 - Duplication : POST /contact-lists/{id}/copy, restitution du nouvel ID quand disponible.
@@ -187,6 +187,41 @@ simulées ; aucun audit massif ni import réel n’a été lancé pour ce chanti
 - Filtrage récursif des secrets et des diagnostics exclus avant transmission au modèle : désabonnés, contacts sans email, mauvaises adresses et bounces. Les diagnostics d'étape contenant leur nombre dans `message.replacements` sont retirés en entier. L'historique des anciennes réponses est épuré avant réutilisation ; les anciens textes déjà affichés ne sont pas modifiés.
 - Pour `profile.level === "user"`, le palier est Simple côté front et serveur, sans sélecteur. Sur OpenRouter, Simple utilise `AI_MODEL_INCLUDED`, sinon `AI_MODEL`, sinon `deepseek/deepseek-v4-flash`, si la clé `AI_INCLUDED_API_KEY` possède un plafond quotidien de 3 USD au plus et un solde positif ; sinon `AI_MODEL_FREE` est choisi. La même priorité de modèle est appliquée pendant les tests sans plafonds. Compose transmet ces variables au conteneur ; le log de démarrage affiche `included=<modèle>`. Une clé `AI_API_KEY_FREE` distincte est recommandée. L'IA incluse refuse les prompts trop volumineux avant tout appel au modèle (`413 shared_prompt_too_large`) ; une clé OpenAI personnelle reste utilisable. Aucun quota individuel journalier persistant n'est possible sans support de l'API Magileads.
 - Invalidation des données en cache après les opérations du serveur. Les pages retrouvent les données fraîches à leur prochaine consultation.
+
+### Confirmation des suppressions de contacts dans le front v5
+
+La carte n’apparaît qu’une fois la réponse terminée. Le front charge la liste et
+ses champs réels, puis appelle `GET /contact-lists/{id}/contacts` avec
+`options={page:1,per_page:5,filter}` pour afficher le nombre et un échantillon des
+contacts concernés. Les valeurs possibles renvoyées par `list_contact_fields`
+permettent au modèle d’utiliser les valeurs réellement stockées, par exemple
+`M.` pour la civilité Monsieur.
+
+Un filtre vide, un champ inconnu, plusieurs blocs d’action ou un aperçu
+indisponible empêchent la suppression. L’utilisateur doit cocher la confirmation
+puis cliquer sur le bouton qui indique le nombre de contacts. Un changement
+d’aperçu retire cette confirmation. Le front envoie alors un seul
+`DELETE /contact-lists/{id}/contacts`, avec exactement le filtre prévisualisé et
+`{contact_ids:[],filter,excluded_contact_ids:[]}`. Le double clic est bloqué et un
+échec n’est jamais rejoué automatiquement. Le compte, la session et la
+proposition sont revérifiés avant l’envoi, y compris après renouvellement du
+jeton. Annuler n’envoie aucun DELETE.
+
+Le résultat ou l’annulation reste attaché au message et dans l’historique envoyé
+au modèle. Après succès, les requêtes de la liste et de ses contacts sont
+invalidées pour recharger les données. Une confirmation écrite dans le chat
+ne remplace jamais la confirmation de la carte. Le serveur continue à refuser
+les DELETE ; les suppressions de listes entières et d’autres entités ne sont pas
+des actions prises en charge par cette carte.
+
+Vérification : `node --test src/contact-actions-http.test.js` exerce le flux SSE
+et le refus de toute suppression serveur. Dans v5,
+`node --test scripts/test-assistant-actions.mjs` vérifie le parseur, l’aperçu,
+la confirmation, le double clic, le changement de compte et l’absence de
+réessai automatique. `node --env-file=.env examples/contact-actions-model-smoke.mjs`
+exerce le modèle configuré avec des données Magileads entièrement fictives,
+sans appeler les données clients ni effectuer de suppression. Le modèle peut
+être précisé par `ACTION_TEST_MODEL` ; le script affiche les contrôles et le coût.
 
 ## Contrat SSE
 

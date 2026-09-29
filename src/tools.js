@@ -227,7 +227,7 @@ export const AI_TOOLS = [
     type: "function",
     function: {
       name: "list_contact_fields",
-      description: "Liste les champs de données disponibles (nom + identifiant).",
+      description: "Liste les champs de données disponibles : ID numérique à utiliser dans field_name, nom, identifier et valeurs possibles réellement stockées.",
       parameters: { type: "object", properties: {} },
     },
   },
@@ -252,7 +252,20 @@ export const AI_TOOLS = [
           filter: {
             type: "object",
             description:
-              "Filtre Magileads : {mode:'and'|'or', values:[{field_name (= data_field_id en string, cf. list_contact_fields), type:'contains'|'equals'|'start_with'|'does_exist'|'does_not_exist', value?}]}. NE PAS envoyer de filtre vide.",
+              "Filtre Magileads : field_name est l’ID numérique renvoyé par list_contact_fields en texte (ex. '7'), JAMAIS le nom ni l’identifier (ex. 'civility'). NE PAS envoyer de filtre vide.",
+            properties: {
+              mode: { type: 'string', enum: ['and', 'or'] },
+              values: { type: 'array', minItems: 1, items: {
+                type: 'object',
+                description: 'Condition avec field_name, type, value ; ou groupe imbriqué avec mode et values.',
+                properties: {
+                  field_name: { type: 'string', pattern: '^[1-9][0-9]*$', description: 'ID numérique du champ en texte, ex. "7".' },
+                  type: { type: 'string' }, value: { type: 'string' },
+                  mode: { type: 'string', enum: ['and', 'or'] }, values: { type: 'array', minItems: 1, items: { type: 'object' } },
+                },
+              } },
+            },
+            required: ['mode', 'values'],
           },
         },
         required: ["list_id", "filter"],
@@ -443,6 +456,11 @@ async function fieldMap(auth) {
 /** A filter that actually constrains something (never "delete everything"). */
 function nonEmptyFilter(f) {
   return !!f && typeof f === "object" && Array.isArray(f.values) && f.values.length > 0;
+}
+
+function numericContactFields(filter) {
+  return nonEmptyFilter(filter) && filter.values.every(condition => condition && typeof condition === 'object' &&
+    (condition.field_name !== undefined ? /^[1-9][0-9]*$/.test(String(condition.field_name)) : numericContactFields(condition)));
 }
 
 /** Normalize the (ambiguous) contacts envelope -> flat array of contact rows. */
@@ -695,6 +713,7 @@ export async function executeTool(name, argsRaw, auth, context = {}) {
             id: f.id,
             name: f.name,
             identifier: f.identifier,
+            possible_values: Array.isArray(f.possible_values) ? f.possible_values.filter(value => typeof value === 'string') : [],
           })),
         });
       }
@@ -762,6 +781,9 @@ export async function executeTool(name, argsRaw, auth, context = {}) {
         if (!nonEmptyFilter(args.filter)) {
           return cap({ error: "filtre vide interdit (empêche une suppression totale accidentelle)" });
         }
+        if (!numericContactFields(args.filter)) {
+          return cap({ error: 'field_name doit être l’ID numérique du champ en texte (ex. "7") renvoyé par list_contact_fields, jamais son nom ni son identifier. Corrige le filtre avant de recompter.' });
+        }
         const r = await listContactListContacts(auth, id, { per_page: 1, filter: args.filter });
         if (!r.ok || !r.data) return cap({ error: "aperçu indisponible" });
         const env = r.data;
@@ -769,7 +791,7 @@ export async function executeTool(name, argsRaw, auth, context = {}) {
         return cap({
           list_id: id,
           count,
-          note: "Lecture seule : aucune modification. Ce serveur n'expose aucun outil de suppression de contacts.",
+          note: "Lecture seule : aucune modification. Une proposition de suppression de contacts est affichée par le front, qui vérifie l’aperçu et demande une confirmation humaine avant de la réaliser.",
         });
       }
 
