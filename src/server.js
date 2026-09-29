@@ -510,7 +510,7 @@ async function handleChat(req, res, cors) {
               tool: c.name, label: TOOL_LABELS[c.name] || c.name.replace(/_/g, ' '),
               status: 'running', creates_list: createsList,
             });
-            result = await executeTool(c.name, args, auth, { profile });
+            result = await executeTool(c.name, args, auth, { profile, enforceUsageLimits });
             let launched = false;
             try { launched = Boolean(JSON.parse(result).list_id); } catch { /* tool returned an error */ }
             if (c.name !== 'update_targeting') sendEvent('tool.progress', {
@@ -616,7 +616,8 @@ const server = http.createServer(async (req, res) => {
         ok: true,
         usageLimitsEnabled: limited,
         executionLimits: { maxToolRounds: limited ? MAX_ROUNDS : null,
-          modelCallTimeoutMs: limited ? CALL_TIMEOUT_MS : null, heartbeatMs: HEARTBEAT_MS },
+          modelCallTimeoutMs: limited ? CALL_TIMEOUT_MS : null, heartbeatMs: HEARTBEAT_MS,
+          toolResultTruncationEnabled: limited },
         toolLabels: TOOL_LABELS,
         createsList: CREATES_LIST,
         // Paliers réellement disponibles (l'UI peut s'y adapter).

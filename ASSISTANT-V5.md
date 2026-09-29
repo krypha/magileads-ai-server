@@ -26,6 +26,11 @@ Il expose aussi `executionLimits` avec `maxToolRounds:null` et
 `modelCallTimeoutMs:null` pendant les tests. Un commentaire SSE est envoyé toutes
 les 15 secondes pendant l’attente. Hors tests, la limite de six tours déclenche
 un dernier appel sans outils pour restituer les résultats et les manques.
+En mode test, les résultats JSON des outils ne sont plus tronqués par les seuils
+de caractères : listes de modèles, contenu complet, champs et autres résultats
+renvoyés par l’API. Les secrets et diagnostics exclus restent retirés.
+`executionLimits.toolResultTruncationEnabled` permet de vérifier ce réglage.
+La pagination et les tailles de pages de chaque outil ne sont pas modifiées.
 
 Tous les comptes, y compris les administrateurs et les clés OpenAI personnelles,
 passent par une classification sémantique Magileads avant les outils métier.

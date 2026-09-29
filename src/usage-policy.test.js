@@ -86,6 +86,7 @@ test('temporary tests preserve long prompts and output, lift cost/workload caps,
     assert.equal(meta.usageLimitsEnabled, false);
     assert.equal(meta.executionLimits.maxToolRounds, null);
     assert.equal(meta.executionLimits.modelCallTimeoutMs, null);
+    assert.equal(meta.executionLimits.toolResultTruncationEnabled, false);
     const history = Array.from({ length: 62 }, (_, index) => ({
       role: index % 2 === 0 ? 'user' : 'assistant', content: `History-${index}: ${'é'.repeat(2000)}`,
     }));

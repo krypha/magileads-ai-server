@@ -36,6 +36,10 @@ export function buildSystemPrompt(profile, { mode = 'chat', pageContext = false 
     `Réutilise les données et comptages déjà obtenus ; ne répète pas la même lecture pour contourner une troncature. ` +
     `Présente le résultat demandé dès que les données suffisent ; si un croisement est impossible, explique la donnée manquante sans inventer de résultat.\n\n` +
 
+    `MODÈLES : pour retrouver tous les modèles correspondant à un nom, parcours toutes les entrées renvoyées par list_email_models (ou l'opération du canal concerné), ` +
+    `puis lis leur contenu avec get_email_model si nécessaire. Un aperçu tronqué ou une seule page ne permet jamais d'affirmer que tu as retrouvé tous les modèles. ` +
+    `Ne présente pas un échantillon comme un résultat exhaustif ; signale les données manquantes si l'API ne renvoie qu'une partie.\n\n` +
+
     `AUDIT DE CAMPAGNE : si on te demande d'auditer une campagne, appelle list_campaigns (pour retrouver l'id ET le workflow_id via le nom si besoin), ` +
     `puis get_campaign_statistics (id de programmation) pour les stats et get_campaign (workflow_id) pour le scénario, ` +
     `et produis un rapport Markdown : résumé exécutif factuel, analyse du scénario (étapes/canaux/délais), statistiques par étape (tableau) ` +

@@ -92,6 +92,11 @@ historique et suspend les limites de prompt, coût par requête, prix des provid
 trois campagnes, douze outils et requêtes par minute. La limite de six tours
 d’outils et le délai de 120 secondes par appel modèle sont également suspendus :
 le serveur continue jusqu’à la réponse finale ou l’arrêt par l’utilisateur.
+Les résultats des outils ne sont plus remplacés par un aperçu quand leur JSON
+dépasse 8 000/12 000 caractères (ou le seuil propre à l’outil). La liste complète
+des modèles renvoyée par l’API et le contenu des modèles restent disponibles
+pour le modèle IA, y compris les dernières entrées. Les secrets et diagnostics
+d’audit exclus restent retirés avant cette transmission.
 Le précontrôle de la clé
 journalière OpenRouter est suspendu ; l’IA incluse utilise en priorité
 `AI_API_KEY`, puis `AI_INCLUDED_API_KEY` si la clé de plateforme manque. Les
@@ -106,12 +111,14 @@ Pour arrêter les tests plus tôt, retirer la variable et redémarrer le serveur
 
 L’authentification, les clés propres au compte, le périmètre Magileads, la
 validation d’import, la politique de suppression et la suppression des secrets
-restent actifs. La requête HTTP reste plafonnée à 1 Mo et les résultats des outils
-restent plafonnés. Hors tests, après six tours d’outils, un dernier appel sans
+restent actifs. La requête HTTP reste plafonnée à 1 Mo. La pagination et les
+tailles de pages prévues par les outils de lecture restent applicables. Hors
+tests, les résultats volumineux sont plafonnés ; après six tours d’outils, un dernier appel sans
 autorisation d’outils demande une synthèse factuelle, avec les informations
 manquantes si nécessaire, plutôt que fermer silencieusement le flux.
 `GET /ai/meta` expose aussi `executionLimits` : `maxToolRounds` et
 `modelCallTimeoutMs` valent `null` pendant les tests, sinon `6` et `120000`.
+`toolResultTruncationEnabled` vaut `false` pendant les tests, `true` hors tests.
 
 ### Intégration OpenAI du compte
 

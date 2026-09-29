@@ -1,4 +1,5 @@
 import { sanitize, forbiddenOperation } from './assistant-policy.js';
+import { usageLimitsEnabled } from './usage-policy.js';
 import { EXTENDED_TOOLS, executeExtended } from './operations.js';
 import {
   countDatabase, hasPermission, normalizeTargeting, positiveId, resolveListTarget,
@@ -414,12 +415,12 @@ function pct(num, denom) {
 }
 
 /**
- * Serialize a tool result, capping size to protect the model context window.
+ * Sanitize a tool result, then cap size only when usage limits are enabled.
  * MUST always return VALID JSON — slicing a JSON string mid-way corrupts it.
  */
-function cap(value, max = 8000) {
+function serializeResult(value, max = 8000, enforceLimits = true) {
   const s = JSON.stringify(sanitize(value ?? null) ?? null);
-  if (s.length <= max) return s;
+  if (!enforceLimits || s.length <= max) return s;
   return JSON.stringify({
     _truncated: true,
     _chars: s.length,
@@ -452,12 +453,16 @@ function contactRows(env) {
 /* -------------------------------- executor -------------------------------- */
 
 /**
- * Run one tool. Always returns a JSON STRING (already size-capped) for the model.
+ * Run one tool. Always returns sanitized JSON; test mode preserves its full size.
  * @param {string} name tool name
  * @param {string} argsRaw raw JSON arguments produced by the model
  * @param {{accessToken?:string, apiKey?:string}} auth the CALLER's credentials
  */
 export async function executeTool(name, argsRaw, auth, context = {}) {
+  // The server fixes this policy at chat start. Never use model arguments to
+  // select it; direct callers default to the deployment's temporary test mode.
+  const enforceLimits = context.enforceUsageLimits ?? usageLimitsEnabled();
+  const cap = (value, max) => serializeResult(value, max, enforceLimits);
   if (forbiddenOperation(name) || !AI_TOOLS.some(tool => tool.function.name === name)) return cap({ error: "operation_not_allowed" });
   let args = {};
   try {
