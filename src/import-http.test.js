@@ -9,6 +9,8 @@ test('import mode streams criteria, refuses extraction before approval, then lau
   let extracts = 0;
   let generators = 0;
   let providerError;
+  /** What the model was told on the latest completion of a request. */
+  let lastSystem = '';
   const upstream = http.createServer(async (req, res) => {
     if (req.url === '/users/me') return res.end(JSON.stringify({ state: true, user_profile: { id: 1, first_name: 'Iris' } }));
     if (req.url === '/contact-lists/42') return res.end(JSON.stringify({ state: true, contact_list_profile: { id: 42, name: 'Liste existante' } }));
@@ -39,6 +41,7 @@ test('import mode streams criteria, refuses extraction before approval, then lau
         const body = JSON.parse(raw);
         assert.ok(!raw.includes('caller-secret'));
         if (sendScopeFixture(body, res)) return;
+        lastSystem = body.messages.filter(item => item.role === 'system').map(item => item.content).join('\n');
         const tools = body.messages.filter(item => item.role === 'tool');
         let delta;
         if (body.tool_choice === 'auto' && !tools.length) {
@@ -103,6 +106,9 @@ test('import mode streams criteria, refuses extraction before approval, then lau
       { role: 'user', content: 'go' }], 'import');
     assert.match(typedGo, /event: targeting.criteria/);
     assert.doesNotMatch(typedGo, /"creates_list":true/);
+    // Without the form's approval the model is told a typed "go" launches nothing.
+    assert.match(lastSystem, /ne lance rien/);
+    assert.match(lastSystem, /« Valider la cible »/);
     assert.equal(generators, 1);
     assert.equal(extracts, 1);
     const localized = [...first, { role: 'assistant', content: 'Cible : dentistes à Lyon. Validez ?' },
@@ -110,6 +116,9 @@ test('import mode streams criteria, refuses extraction before approval, then lau
     const existing = await chat(localized, 'import', { contact_list_id: 42,
       targeting: { source: 'google_maps', activity: 'plombiers', cities: ['Bordeaux'], max_results: 37 } });
     assert.match(existing, /"kind":"lists","items":\[\{"id":42,"name":"Liste existante"\}\]/);
+    // With it, the model is told to launch — not sent back to the form.
+    assert.match(lastSystem, /vient de confirmer la cible/);
+    assert.doesNotMatch(lastSystem, /ne lance rien/);
     assert.equal(generators, 2);
     assert.equal(extracts, 2);
     if (providerError) throw providerError;

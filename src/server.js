@@ -312,7 +312,14 @@ async function handleChat(req, res, cors) {
 
   const pageContext = /^\[(?:Screen context, not written by the user and not to be quoted|Screen context from the app, not written by the user)\]/.test(clientMessages.at(-1).content);
   const convo = [{ role: "system", content: buildSystemPrompt(profile, { mode: importMode ? 'import' : 'chat', pageContext }) },
-    ...(body.mode === 'import' ? [{ role: 'system', content: 'Cette interface utilise un formulaire de confirmation distinct après la proposition de cible. Un simple « go » écrit dans le chat ne lance rien : invite l’utilisateur à ouvrir « Vérifier la cible » puis à confirmer. Seul le clic final autorise un outil run_*.' }] : []),
+    // The import UI's own confirmation. Without it, a typed "go" launches
+    // nothing and the model points at the form; with it — the form's final
+    // click, carried as `import_approval` — that same line told the model to
+    // send the user back to the form, so it never called the run tool it had
+    // just been given and the launch stopped at a reply.
+    ...(body.mode === 'import' ? [{ role: 'system', content: approval
+      ? 'L’utilisateur vient de confirmer la cible dans le formulaire « Valider la cible » : c’est le clic final. Mets la cible à jour si besoin, puis lance la recherche avec l’outil run_* correspondant, sans redemander de confirmation ni renvoyer vers le formulaire.'
+      : 'Cette interface utilise un formulaire de confirmation distinct après la proposition de cible. Un simple « go » écrit dans le chat ne lance rien : invite l’utilisateur à confirmer dans le formulaire « Valider la cible », à côté de la conversation. Seul le clic final autorise un outil run_*.' }] : []),
     ...clientMessages];
   if (cappedIncluded) convo[0].content += '\nIA INCLUSE : au plus trois campagnes en audit détaillé et douze appels d’outils par demande. Pour un audit global, demande de choisir une à trois campagnes ou de connecter une clé OpenAI personnelle. Les listes et résumés globaux restent disponibles. Si le serveur bloque le coût ou le volume, arrête les outils et invite à réduire le périmètre.';
   const requestBudget = cappedIncluded ? new RequestBudget() : null;
