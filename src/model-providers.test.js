@@ -1,6 +1,31 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readModelStream, resolveModels, upstreamRequest } from './model-providers.js';
+import { readModelStream, resolveIncludedModel, resolveModels, upstreamRequest } from './model-providers.js';
+
+test('included model prefers its override, inherits Simple and only defaults to Flash without either', () => {
+  const saved = { AI_MODEL: process.env.AI_MODEL, AI_MODEL_INCLUDED: process.env.AI_MODEL_INCLUDED };
+  try {
+    for (const [included, simple, expected] of [
+      ['deepseek/deepseek-v4-pro', 'deepseek/deepseek-v4-flash', 'deepseek/deepseek-v4-pro'],
+      ['deepseek/deepseek-v4-flash', 'deepseek/deepseek-v4-pro', 'deepseek/deepseek-v4-flash'],
+      [undefined, 'deepseek/deepseek-v4-pro', 'deepseek/deepseek-v4-pro'],
+      ['  ', ' deepseek/deepseek-v4-pro ', 'deepseek/deepseek-v4-pro'],
+      [undefined, undefined, 'deepseek/deepseek-v4-flash'],
+      ['', '', 'deepseek/deepseek-v4-flash'],
+    ]) {
+      if (included === undefined) delete process.env.AI_MODEL_INCLUDED;
+      else process.env.AI_MODEL_INCLUDED = included;
+      if (simple === undefined) delete process.env.AI_MODEL;
+      else process.env.AI_MODEL = simple;
+      assert.equal(resolveIncludedModel(), expected);
+    }
+  } finally {
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
 
 test('OpenAI uses its own models; Claude cannot be routed', () => {
   assert.deepEqual(resolveModels('openai', 'free'), []);

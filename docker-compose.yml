@@ -26,8 +26,16 @@ services:
       # OpenRouter reste le fournisseur partagé par défaut.
       AI_API_URL: ${AI_API_URL:-https://openrouter.ai/api/v1}
       AI_API_KEY: ${AI_API_KEY:-}
+      AI_INCLUDED_API_KEY: ${AI_INCLUDED_API_KEY:-}
+      AI_API_KEY_FREE: ${AI_API_KEY_FREE:-}
       AI_MODEL: ${AI_MODEL:-}
       AI_MODEL_COMPLEX: ${AI_MODEL_COMPLEX:-}
+      # Empty = inherit AI_MODEL, including for regular users during tests.
+      AI_MODEL_INCLUDED: ${AI_MODEL_INCLUDED:-}
+      AI_MODEL_FREE: ${AI_MODEL_FREE:-openrouter/free}
+      AI_INCLUDED_MAX_REQUEST_USD: ${AI_INCLUDED_MAX_REQUEST_USD:-0.03}
+      AI_INCLUDED_MAX_INPUT_USD_PER_M: ${AI_INCLUDED_MAX_INPUT_USD_PER_M:-0.25}
+      AI_INCLUDED_MAX_OUTPUT_USD_PER_M: ${AI_INCLUDED_MAX_OUTPUT_USD_PER_M:-1.50}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.4-mini}
       OPENAI_MODEL_COMPLEX: ${OPENAI_MODEL_COMPLEX:-gpt-5.4}
     healthcheck:

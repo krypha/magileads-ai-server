@@ -66,7 +66,8 @@ test('temporary tests preserve long prompts and output, lift cost/workload caps,
   const child = spawn(process.execPath, [new URL('./server.js', import.meta.url).pathname.replace(/^\/(\w:)/, '$1')], {
     env: { ...process.env, PORT: String(port), AI_TEST_UNLIMITED_UNTIL: new Date(Date.now() + 60_000).toISOString(),
       RATE_LIMIT_PER_MIN: '1', MAGILEADS_API_BASE: base, AI_API_URL: base, OPENAI_API_URL: base,
-      AI_API_KEY: 'platform-key', AI_INCLUDED_API_KEY: 'daily-key', AI_MODEL: 'fixture', AI_MODEL_INCLUDED: 'fixture/flash' },
+      AI_API_KEY: 'platform-key', AI_INCLUDED_API_KEY: 'daily-key',
+      AI_MODEL: 'deepseek/deepseek-v4-pro', AI_MODEL_COMPLEX: 'deepseek/deepseek-v4-pro', AI_MODEL_INCLUDED: '' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   const chat = async (messages, options = {}) => {
@@ -96,7 +97,8 @@ test('temporary tests preserve long prompts and output, lift cost/workload caps,
     assert.equal(first.body.messages[1].content, history[0].content);
     assert.ok(first.body.messages.at(-1).content === latest.content, 'Long UTF-8 prompt must be passed in full');
     assert.equal(first.key, 'Bearer platform-key');
-    assert.equal(first.body.model, 'fixture/flash');
+    assert.equal(first.body.model, 'deepseek/deepseek-v4-pro');
+    assert.match(stream, /"model":"deepseek\/deepseek-v4-pro"/);
     assert.equal(budgetChecks, 0);
     assert.equal(campaignReads.length, 14); // Previously blocked at the fourth campaign/13th tool.
     assert.doesNotMatch(first.body.messages[0].content, /au plus trois campagnes/);

@@ -67,7 +67,7 @@ npm run start:node       # node --env-file=.env src/server.js
 | `AI_API_KEY`         | Clé OpenRouter de la plateforme (**serveur uniquement**)           |
 | `AI_INCLUDED_API_KEY` | Clé OpenRouter dédiée aux comptes `level=user`, plafonnée à 3 USD avec `limit_reset=daily`. Sans plafond vérifiable, le serveur utilise le modèle gratuit. |
 | `AI_API_KEY_FREE`   | Clé distincte recommandée pour le repli gratuit après épuisement du budget (à défaut : `AI_API_KEY`). |
-| `AI_MODEL_INCLUDED` | Modèle Simple imposé aux comptes `level=user` (défaut `deepseek/deepseek-v4-flash`). |
+| `AI_MODEL_INCLUDED` | Modèle Simple des comptes `level=user`. Si vide, reprend `AI_MODEL` ; si les deux sont vides, `deepseek/deepseek-v4-flash`. |
 | `AI_MODEL_FREE`      | Palier « Gratuit » — défaut `openrouter/free` (routeur géré par OpenRouter). Accepte aussi une liste séparée par des virgules, essayée dans l'ordre |
 | `AI_MODEL`           | Modèle du palier « Simple » (palier par défaut)                     |
 | `AI_MODEL_COMPLEX`   | Modèle du palier « Complexe » (si vide → identique à Simple)        |
@@ -131,6 +131,24 @@ auprès d'OpenRouter avant chaque chat : la clé doit avoir un plafond de
 `AI_MODEL_FREE` avant l'appel. Un refus 402/429 du modèle payant déclenche
 aussi ce repli. Le plafond est appliqué par OpenRouter entre toutes les
 instances ; le serveur IA ne stocke aucun compteur ni clé utilisateur.
+
+Le modèle des comptes `level=user` suit la priorité `AI_MODEL_INCLUDED` →
+`AI_MODEL` → `deepseek/deepseek-v4-flash`, y compris pendant les tests sans
+plafonds. `AI_MODEL_COMPLEX` ne choisit pas le modèle de leur palier Simple.
+Pour utiliser Pro pour les utilisateurs et les administrateurs :
+
+```dotenv
+AI_MODEL=deepseek/deepseek-v4-pro
+AI_MODEL_COMPLEX=deepseek/deepseek-v4-pro
+AI_MODEL_INCLUDED=deepseek/deepseek-v4-pro
+```
+
+On peut aussi laisser `AI_MODEL_INCLUDED` vide pour qu’il reprenne `AI_MODEL`.
+Le fichier Compose transmet ces variables au conteneur, ainsi que les clés et
+réglages du budget inclus. Après un changement d’environnement, recréer le
+conteneur/redéployer. Le log de démarrage `included=...` indique le modèle
+effectivement configuré pour les utilisateurs ; `model.info` indique le modèle
+de la réponse, éventuellement gratuit après un repli.
 
 L'IA incluse refuse avant l'appel au modèle un dernier message de plus de
 4 000 caractères ou un historique de plus de 24 000 caractères (`413
@@ -231,7 +249,7 @@ l'application. Le composant Mantine gère ce cas via `getAuthHeaders`.
 | Palier | Modèle utilisé | Particularité |
 | ------ | -------------- | ------------- |
 | `free` | `AI_MODEL_FREE` (défaut `openrouter/free`) | OpenRouter sélectionne lui-même un modèle gratuit. Si une liste est épinglée, **bascule automatique** sur le suivant en cas de 429/404/402 |
-| `simple` | `AI_MODEL` pour les admins ; `AI_MODEL_INCLUDED` pour `level=user` | palier par défaut |
+| `simple` | `AI_MODEL` pour les admins ; `AI_MODEL_INCLUDED` puis `AI_MODEL` puis Flash pour `level=user` | palier par défaut |
 | `complex` | `AI_MODEL_COMPLEX` | retombe sur `AI_MODEL` si non défini |
 | `custom` | fourni par le client | permet de tester un modèle précis |
 

@@ -24,7 +24,7 @@ import http from "node:http";
 import { getMe, listOpenAiIntegrations } from "./magileads.js";
 import { AI_TOOLS, TOOL_LABELS, CREATES_LIST, executeTool } from "./tools.js";
 import { buildSystemPrompt } from "./prompt.js";
-import { MODEL_PROVIDERS, readModelStream, resolveModels, upstreamRequest } from './model-providers.js';
+import { MODEL_PROVIDERS, readModelStream, resolveIncludedModel, resolveModels, upstreamRequest } from './model-providers.js';
 import { approvedRunTool, approvedToolArgs, parseImportApproval } from './import-approval.js';
 import { checkIncludedBudget, sharedPromptTooLarge, RequestBudget, INCLUDED_MAX_PRICE, FREE_MAX_PRICE } from './included-budget.js';
 import { redactHiddenAuditText } from './assistant-policy.js';
@@ -263,7 +263,7 @@ async function handleChat(req, res, cors) {
     const freeModels = resolveModels('openrouter', 'free').filter(model => model === 'openrouter/free' || model.endsWith(':free'));
     const paidAvailable = enforceUsageLimits ? await checkIncludedBudget(paidKey) : Boolean(paidKey);
     budgetFallback = !paidAvailable;
-    const paidModels = paidAvailable ? [process.env.AI_MODEL_INCLUDED || 'deepseek/deepseek-v4-flash'] : [];
+    const paidModels = paidAvailable ? [resolveIncludedModel()] : [];
     candidates = [...paidModels, ...freeModels];
     candidateKeys = [...paidModels.map(() => paidKey), ...freeModels.map(() => freeKey)];
     candidateTiers = [...paidModels.map(() => 'simple'), ...freeModels.map(() => 'free')];
@@ -622,7 +622,7 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, () => {
   console.log(`[ai-server] listening on http://localhost:${PORT}`);
-  console.log(`[ai-server] tiers -> free=${resolveModels('openrouter', "free").length} candidat(s) | simple=${AI_MODEL || "(unset)"} | complex=${AI_MODEL_COMPLEX || "(= simple)"} | custom=${ALLOW_CUSTOM_MODEL ? "autorise" : "desactive"}`);
+  console.log(`[ai-server] tiers -> free=${resolveModels('openrouter', "free").length} candidat(s) | simple=${AI_MODEL || "(unset)"} | included=${resolveIncludedModel()} | complex=${AI_MODEL_COMPLEX || "(= simple)"} | custom=${ALLOW_CUSTOM_MODEL ? "autorise" : "desactive"}`);
   if (!AI_API_KEY) console.warn("[ai-server] NOTE: OpenRouter unavailable (AI_API_KEY not set)");
   if (!AI_MODEL) console.warn("[ai-server] NOTE: AI_MODEL non defini -> les paliers simple/complex sont indisponibles");
 });

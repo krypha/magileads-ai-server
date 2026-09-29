@@ -9,6 +9,12 @@ const URLS = {
 
 const DEFAULT_MODELS = { simple: 'gpt-5.4-mini', complex: 'gpt-5.4' };
 
+// An explicit shared-user model wins; otherwise inherit the Simple model.
+// Read deployment settings only, never the client's model/tier selection.
+export function resolveIncludedModel() {
+  return process.env.AI_MODEL_INCLUDED?.trim() || process.env.AI_MODEL?.trim() || 'deepseek/deepseek-v4-flash';
+}
+
 export function resolveModels(provider, tier, customModel) {
   if (!MODEL_PROVIDERS.includes(provider)) return [];
   if (tier === 'custom') {
