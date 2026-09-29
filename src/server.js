@@ -29,6 +29,7 @@ import { approvedRunTool, approvedToolArgs, parseImportApproval } from './import
 import { checkIncludedBudget, sharedPromptTooLarge, RequestBudget, INCLUDED_MAX_PRICE, FREE_MAX_PRICE } from './included-budget.js';
 import { redactHiddenAuditText } from './assistant-policy.js';
 import { IncludedWorkload, SCOPE_TOOL, scopeConversation, scopeDecision, scopeRequestOptions } from './request-policy.js';
+import { usageLimitsEnabled } from './usage-policy.js';
 
 const PORT = Number(process.env.PORT) || 8787;
 const AI_API_KEY = process.env.AI_API_KEY;
@@ -196,12 +197,13 @@ async function handleChat(req, res, cors) {
   const caller = await authenticate(req, res, cors);
   if (!caller) return;
   const { auth, profile, accountId } = caller;
+  const enforceUsageLimits = usageLimitsEnabled();
 
   if (body.mode != null && body.mode !== 'chat' && body.mode !== 'import') {
     return json(res, 400, { ok: false, errorKey: 'invalid_mode' }, cors);
   }
 
-  if (rateLimited(String(accountId))) {
+  if (enforceUsageLimits && rateLimited(String(accountId))) {
     return json(res, 429, { ok: false, errorKey: "rate_limited" }, cors);
   }
 
@@ -211,10 +213,12 @@ async function handleChat(req, res, cors) {
     .filter(
       (m) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string",
     )
-    .map((m) => ({ role: m.role, content: (m.role === 'assistant'
-      ? redactHiddenAuditText(m.content) : m.content).slice(0, MAX_CONTENT) }));
+    .map((m) => {
+      const content = m.role === 'assistant' ? redactHiddenAuditText(m.content) : m.content;
+      return { role: m.role, content: enforceUsageLimits ? content.slice(0, MAX_CONTENT) : content };
+    });
   const importMode = body.mode === 'import' || allMessages.find(message => message.role === 'user')?.content.startsWith(IMPORT_CONTEXT_PREFIX);
-  const clientMessages = allMessages.slice(-MAX_MESSAGES);
+  const clientMessages = enforceUsageLimits ? allMessages.slice(-MAX_MESSAGES) : allMessages;
   if (!clientMessages.length) return json(res, 400, { ok: false, errorKey: "empty" }, cors);
   if (clientMessages.at(-1).role !== 'user') return json(res, 400, { ok: false, errorKey: 'last_message_must_be_user' }, cors);
   // The current import UI has a separate review form. A typed "go" is not its
@@ -241,7 +245,8 @@ async function handleChat(req, res, cors) {
     return json(res, 400, { ok: false, errorKey: 'paid_provider_has_no_free_tier' }, cors);
   }
   const included = profile.level === 'user' && provider === 'openrouter';
-  if (included && sharedPromptTooLarge(clientMessages)) {
+  const cappedIncluded = included && enforceUsageLimits;
+  if (cappedIncluded && sharedPromptTooLarge(clientMessages)) {
     return json(res, 413, { ok: false, errorKey: 'shared_prompt_too_large' }, cors);
   }
   let candidates = resolveModels(provider, tier, body.model);
@@ -249,11 +254,14 @@ async function handleChat(req, res, cors) {
   let candidateTiers = null;
   let budgetFallback = false;
   if (included) {
-    const paidKey = process.env.AI_INCLUDED_API_KEY || AI_API_KEY;
+    // Tests use the platform key instead of requiring the dedicated capped key.
+    // OpenRouter still enforces limits configured on the selected key itself.
+    const paidKey = enforceUsageLimits ? process.env.AI_INCLUDED_API_KEY || AI_API_KEY
+      : AI_API_KEY || process.env.AI_INCLUDED_API_KEY;
     const freeKey = process.env.AI_API_KEY_FREE || AI_API_KEY || paidKey;
     // A misconfigured paid slug must never be used as the shared free fallback.
     const freeModels = resolveModels('openrouter', 'free').filter(model => model === 'openrouter/free' || model.endsWith(':free'));
-    const paidAvailable = await checkIncludedBudget(paidKey);
+    const paidAvailable = enforceUsageLimits ? await checkIncludedBudget(paidKey) : Boolean(paidKey);
     budgetFallback = !paidAvailable;
     const paidModels = paidAvailable ? [process.env.AI_MODEL_INCLUDED || 'deepseek/deepseek-v4-flash'] : [];
     candidates = [...paidModels, ...freeModels];
@@ -299,9 +307,9 @@ async function handleChat(req, res, cors) {
   const convo = [{ role: "system", content: buildSystemPrompt(profile, { mode: importMode ? 'import' : 'chat', pageContext }) },
     ...(body.mode === 'import' ? [{ role: 'system', content: 'Cette interface utilise un formulaire de confirmation distinct après la proposition de cible. Un simple « go » écrit dans le chat ne lance rien : invite l’utilisateur à ouvrir « Vérifier la cible » puis à confirmer. Seul le clic final autorise un outil run_*.' }] : []),
     ...clientMessages];
-  if (included) convo[0].content += '\nIA INCLUSE : au plus trois campagnes en audit détaillé et douze appels d’outils par demande. Pour un audit global, demande de choisir une à trois campagnes ou de connecter une clé OpenAI personnelle. Les listes et résumés globaux restent disponibles. Si le serveur bloque le coût ou le volume, arrête les outils et invite à réduire le périmètre.';
-  const requestBudget = included ? new RequestBudget() : null;
-  const workload = included ? new IncludedWorkload() : null;
+  if (cappedIncluded) convo[0].content += '\nIA INCLUSE : au plus trois campagnes en audit détaillé et douze appels d’outils par demande. Pour un audit global, demande de choisir une à trois campagnes ou de connecter une clé OpenAI personnelle. Les listes et résumés globaux restent disponibles. Si le serveur bloque le coût ou le volume, arrête les outils et invite à réduire le périmètre.';
+  const requestBudget = cappedIncluded ? new RequestBudget() : null;
+  const workload = cappedIncluded ? new IncludedWorkload() : null;
 
   res.writeHead(200, {
     "Content-Type": "text/event-stream; charset=utf-8",
@@ -348,8 +356,9 @@ async function handleChat(req, res, cors) {
           : 'auto';
         const messages = scopeCheck ? scopeConversation(clientMessages) : convo;
         const scopeOptions = scopeRequestOptions(provider, model);
-        const maxTokens = scopeCheck ? scopeOptions.maxTokens : included ? 2_048 : undefined;
-        const maxPrice = included ? candidateTiers[modelIdx] === 'free' ? FREE_MAX_PRICE : INCLUDED_MAX_PRICE : undefined;
+        const maxTokens = enforceUsageLimits
+          ? scopeCheck ? scopeOptions.maxTokens : included ? 2_048 : undefined : undefined;
+        const maxPrice = cappedIncluded ? candidateTiers[modelIdx] === 'free' ? FREE_MAX_PRICE : INCLUDED_MAX_PRICE : undefined;
         if (requestBudget?.exhausted) {
           clearTimeout(timeout);
           return { error: 'request_budget_exceeded' };
@@ -408,7 +417,7 @@ async function handleChat(req, res, cors) {
         : provider !== 'openrouter' && [401, 403].includes(checked.status) ? 'provider_key_invalid' : 'scope_check_unavailable');
     } else if (decision === 'off_topic') {
       fail('off_topic');
-    } else if (included && decision === 'broad_campaign_audit') {
+    } else if (cappedIncluded && decision === 'broad_campaign_audit') {
       fail('request_too_broad');
     }
     chatRounds: for (let round = 0; round < MAX_ROUNDS && !closed && !failed; round++) {
@@ -583,6 +592,7 @@ const server = http.createServer(async (req, res) => {
       200,
       {
         ok: true,
+        usageLimitsEnabled: usageLimitsEnabled(),
         toolLabels: TOOL_LABELS,
         createsList: CREATES_LIST,
         // Paliers réellement disponibles (l'UI peut s'y adapter).

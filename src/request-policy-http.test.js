@@ -52,6 +52,7 @@ test('scope and cost gates stop HTTP tool execution across paid, free and person
   const port = reservation.address().port; await new Promise(resolve => reservation.close(resolve));
   const child = spawn(process.execPath, [new URL('./server.js', import.meta.url).pathname.replace(/^\/(\w:)/, '$1')], {
     env: { ...process.env, PORT: String(port), MAGILEADS_API_BASE: base, AI_API_URL: base, OPENAI_API_URL: base,
+      AI_TEST_UNLIMITED_UNTIL: '',
       AI_API_KEY: 'platform-key', AI_INCLUDED_API_KEY: 'capped-key', AI_MODEL: 'fixture',
       AI_MODEL_FREE: 'misconfigured/paid,fixture/model:free', AI_INCLUDED_MAX_REQUEST_USD: '0.015' },
     stdio: ['ignore', 'pipe', 'pipe'],

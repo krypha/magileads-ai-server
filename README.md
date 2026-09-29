@@ -61,6 +61,7 @@ npm run start:node       # node --env-file=.env src/server.js
 | `PORT`               | Port d'écoute (défaut `8787`)                                       |
 | `ALLOWED_ORIGINS`    | Origines CORS autorisées, séparées par des virgules (`*` en dev)    |
 | `RATE_LIMIT_PER_MIN` | Requêtes max par utilisateur et par minute (défaut 20)              |
+| `AI_TEST_UNLIMITED_UNTIL` | Date/heure d’expiration des tests sans plafonds d’usage, au format ISO UTC. Vide par défaut : limites normales actives. |
 | `MAGILEADS_API_BASE` | `https://app.api-magileads.net`                                     |
 | `AI_API_URL`         | Hôte OpenRouter (défaut `https://openrouter.ai/api/v1`)             |
 | `AI_API_KEY`         | Clé OpenRouter de la plateforme (**serveur uniquement**)           |
@@ -74,6 +75,38 @@ npm run start:node       # node --env-file=.env src/server.js
 | `OPENAI_MODEL` / `OPENAI_MODEL_COMPLEX` | Modèles OpenAI par défaut : `gpt-5.4-mini` / `gpt-5.4` |
 
 > ⚠️ Le modèle doit supporter le **function calling**.
+
+### Tests sans plafonds d’usage
+
+Définir `AI_TEST_UNLIMITED_UNTIL` dans l’environnement du **serveur IA**, avec une
+date future ISO UTC, puis redémarrer/redéployer. Exemple pour tester jusqu’au
+30 septembre 2026 à 23 h 59 à Madagascar :
+
+```dotenv
+AI_TEST_UNLIMITED_UNTIL=2026-09-30T20:59:59Z
+```
+
+Pendant cette période, le serveur ne transmet aucun `max_tokens` au modèle
+(réponse comme contrôleur de périmètre), ne tronque ni les messages ni leur
+historique et suspend les limites de prompt, coût par requête, prix des providers,
+trois campagnes, douze outils et requêtes par minute. Le précontrôle de la clé
+journalière OpenRouter est suspendu ; l’IA incluse utilise en priorité
+`AI_API_KEY`, puis `AI_INCLUDED_API_KEY` si la clé de plateforme manque. Les
+budgets, quotas et fenêtres de contexte imposés par OpenRouter/OpenAI continuent
+de s’appliquer : ce réglage ne les modifie pas.
+
+La date est vérifiée pour chaque nouvelle requête. Une valeur absente, invalide
+ou expirée réactive les limites normales, sans redémarrage à l’expiration. La
+valeur ne peut pas venir du corps `/ai/chat`. `GET /ai/meta` indique
+`usageLimitsEnabled:false` pendant les tests, puis `true` après expiration.
+Pour arrêter les tests plus tôt, retirer la variable et redémarrer le serveur.
+
+L’authentification, les clés propres au compte, le périmètre Magileads, la
+validation d’import, la politique de suppression et la suppression des secrets
+restent actifs. Les limites techniques restent également inchangées : requête
+HTTP de 1 Mo, six tours d’outils, délai de 120 secondes par appel modèle et
+résultats d’outils plafonnés. Les plafonds décrits ci-dessous s’appliquent hors
+de cette période de test.
 
 ### Intégration OpenAI du compte
 

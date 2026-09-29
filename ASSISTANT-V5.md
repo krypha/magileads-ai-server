@@ -10,6 +10,17 @@ Le serveur conserve les outils de lecture/ciblage existants et ajoute un catalog
 
 ### Périmètre et budget des demandes
 
+**Tests temporaires sans plafonds :** définir `AI_TEST_UNLIMITED_UNTIL` sur le
+serveur IA avec une date future ISO UTC (voir README.md). Jusqu’à cette date,
+aucun `max_tokens` n’est envoyé, les messages et l’historique ne sont pas
+tronqués, et les plafonds de prompt, coût, prix, campagnes, outils et requêtes
+par minute sont désactivés. La clé OpenRouter de plateforme est utilisée en
+priorité, sans précontrôle de plafond quotidien ; les quotas du fournisseur
+restent applicables. Le périmètre Magileads, l’authentification, les validations
+d’import et la politique de suppression restent actifs. L’absence ou
+l’expiration de la variable rétablit le comportement ci-dessous pour chaque
+nouvelle requête. `GET /ai/meta` expose `usageLimitsEnabled` pour le vérifier.
+
 Tous les comptes, y compris les administrateurs et les clés OpenAI personnelles,
 passent par une classification sémantique Magileads avant les outils métier.
 Le contrôleur reçoit les derniers tours pour comprendre les confirmations et le

@@ -31,13 +31,16 @@ test('regular users get capped Flash, then free, and oversized prompts stop befo
   const port = reservation.address().port; await new Promise(resolve => reservation.close(resolve));
   const child = spawn(process.execPath, [new URL('./server.js', import.meta.url).pathname.replace(/^\/(\w:)/, '$1')], {
     env: { ...process.env, PORT: String(port), MAGILEADS_API_BASE: upstreamUrl, AI_API_URL: upstreamUrl,
+      AI_TEST_UNLIMITED_UNTIL: '',
       AI_API_KEY: 'main-key', AI_INCLUDED_API_KEY: 'included-key', AI_API_KEY_FREE: 'free-key',
       AI_MODEL: 'admin-model', AI_MODEL_FREE: 'fixture/model:free', AI_MODEL_INCLUDED: 'deepseek/deepseek-v4-flash' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   const chat = (content) => fetch(`http://127.0.0.1:${port}/ai/chat`, {
     method: 'POST', headers: { Authorization: 'Bearer user-token', 'Content-Type': 'application/json' },
-    body: JSON.stringify({ provider: 'openrouter', tier: 'complex', messages: [{ role: 'user', content }] }),
+    body: JSON.stringify({ provider: 'openrouter', tier: 'complex',
+      AI_TEST_UNLIMITED_UNTIL: new Date(Date.now() + 3600_000).toISOString(),
+      messages: [{ role: 'user', content }] }),
   });
   try {
     await Promise.race([once(child.stdout, 'data'), once(child, 'exit').then(() => { throw Error('server exited'); })]);
