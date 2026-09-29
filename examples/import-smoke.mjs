@@ -59,9 +59,9 @@ async function turn(messages, approved) {
       }
       console.log(`\n${event}: ${JSON.stringify(payload)}`);
       if (!approved && ((event === 'tool.progress' && payload.creates_list) ||
-        (event === 'assistant.card' && payload.kind === 'lists'))) {
+        (event === 'assistant.card' && payload.kind === 'lists' && payload.purpose !== 'selection'))) {
         await reader.cancel();
-        throw new Error('Lancement ou carte de liste reçue avant validation.');
+        throw new Error('Lancement ou reçu de création reçu avant validation.');
       }
       if (event === 'assistant.error') throw new Error(`Erreur du serveur IA : ${payload.code}`);
     }

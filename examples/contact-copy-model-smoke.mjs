@@ -1,13 +1,14 @@
 // Real provider, fictional Magileads fixtures only. No customer API call.
 import { API_BASE } from '../src/magileads.js';
 import { AI_TOOLS, executeTool } from '../src/tools.js';
+import { cardsForTool } from '../src/cards.js';
 import { buildSystemPrompt } from '../src/prompt.js';
 import { upstreamRequest, readModelStream } from '../src/model-providers.js';
 import { SCOPE_TOOL, scopeConversation, scopeDecision, scopeRequestOptions } from '../src/request-policy.js';
 
 const key = process.env.AI_API_KEY, model = process.env.COPY_TEST_MODEL || process.env.AI_MODEL;
 if (!key || !model) throw Error('AI_API_KEY and AI_MODEL are required');
-const names = new Set(['list_contact_lists', 'get_contact_list', 'list_contact_fields', 'preview_contact_selection', 'query_contacts',
+const names = new Set(['list_contact_lists', 'ask_contact_list', 'get_contact_list', 'list_contact_fields', 'preview_contact_selection', 'query_contacts',
   'copy_contacts_to_list', 'discover_operations', 'run_operation']);
 const tools = AI_TOOLS.filter(tool => names.has(tool.function.name));
 const profile = { id: 1, first_name: 'Test', level: 'admin' };
@@ -55,17 +56,19 @@ async function run(messages, pageContext = false) {
   });
   if (scopeDecision(scope.calls) !== 'allow') throw Error('scope_not_allowed');
   const conversation = [{ role: 'system', content: buildSystemPrompt(profile, { pageContext }) }, ...messages];
-  const context = { profile, copyAttempts: new Set() }, results = [];
+  const context = { profile, copyAttempts: new Set() }, results = [], cards = [], toolNames = [];
   let cost = scope.usage?.cost ?? 0;
   for (let round = 0; round < 6; round++) {
     const answer = await call(conversation, tools);
     cost += answer.usage?.cost ?? 0;
-    if (!answer.calls.length) return { text: answer.assistantContent, cost, results };
+    if (!answer.calls.length) return { text: answer.assistantContent, cost, results, cards, toolNames };
     conversation.push({ role: 'assistant', content: answer.assistantContent || null,
       tool_calls: answer.calls.map(tool => ({ id: tool.id, type: 'function', function: { name: tool.name, arguments: tool.args } })) });
     for (const tool of answer.calls) {
       const content = await executeTool(tool.name, tool.args, { accessToken: 'fictional-fixture-only' }, context);
       results.push(JSON.parse(content));
+      cards.push(...cardsForTool(tool.name, content, tool.args));
+      toolNames.push(tool.name);
       conversation.push({ role: 'tool', tool_call_id: tool.id, content });
     }
   }
@@ -79,14 +82,20 @@ try {
   const existing = await run([{ role: 'user', content: 'Copie tous les contacts de civilité Monsieur de DAF PARIS vers ma liste Destination #777.' }]);
   const beforeNormal = copies.length;
   const normal = await run([{ role: 'user', content: 'Combien de contacts ont la civilité Monsieur dans DAF PARIS ?' }]);
+  const selection = await run([{ role: 'user', content: 'Affiche mes listes avec leurs ID pour que je puisse sélectionner une liste.' }]);
+  const ranking = await run([{ role: 'user', content: 'Affiche dans un tableau mes deux plus grandes listes avec leur nombre de contacts.' }]);
   const valid = (result, listId) => result.results.some(item => item.operation === 'copy_contacts_to_list' && item.status === 'accepted' && item.list_id === listId && item.matched_contacts === 16);
   const allFiltered = copies.every(body => JSON.stringify(body.contacts_selection.filter) === JSON.stringify({ mode: 'and', values: [{ field_name: '2', type: 'equals', value: 'Monsieur' }] }) && body.contacts_selection.contact_ids.length === 0);
+  const visibleListCards = result => result.cards.filter(card => card.kind === 'lists' && card.purpose === 'selection');
+  const listPresentation = [named, existing, normal, ranking].every(result => !visibleListCards(result).length) &&
+    visibleListCards(selection).length === 1 && selection.toolNames.includes('ask_contact_list') &&
+    ranking.toolNames.includes('list_contact_lists') && ranking.text.includes('|');
   const ok = beforeChoice === 0 && valid(named, 888) && valid(existing, 777) && copies.length === beforeNormal && copies.length === 2 && allFiltered && unexpected.length === 0 &&
-    lists.get(888).name === 'DAF Paris — Messieurs' && ![ambiguous, named, existing, normal].some(result => result.text.includes('[[ACTION]]'));
+    listPresentation && lists.get(888).name === 'DAF Paris — Messieurs' && ![ambiguous, named, existing, normal].some(result => result.text.includes('[[ACTION]]'));
   console.log(JSON.stringify({ model, ok, beforeChoice, namedCopy: valid(named, 888), existingCopy: valid(existing, 777), fictionalCopies: copies.length,
-    allFiltered, unexpectedWrites: unexpected.length, customerApiCalls: 0, cost: ambiguous.cost + named.cost + existing.cost + normal.cost }));
+    allFiltered, listPresentation, unexpectedWrites: unexpected.length, customerApiCalls: 0, cost: [ambiguous, named, existing, normal, selection, ranking].reduce((total, result) => total + result.cost, 0) }));
   if (!ok) {
-    if (process.env.COPY_TEST_DEBUG === '1') console.log(JSON.stringify({ ambiguous, named, existing, normal, copies, unexpected }));
+    if (process.env.COPY_TEST_DEBUG === '1') console.log(JSON.stringify({ ambiguous, named, existing, normal, selection, ranking, copies, unexpected }));
     process.exitCode = 1;
   }
 } finally { global.fetch = originalFetch; }

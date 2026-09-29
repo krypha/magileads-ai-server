@@ -66,7 +66,7 @@ test('a new named list receives the whole filtered segment, not the one-row prev
   assert.deepEqual(calls.find(call => call.path.endsWith('/contacts')).options.filter, copy.body.contacts_selection.filter);
   assert.deepEqual(writes(calls)[1], { path: '/contact-lists/888', method: 'PUT', options: {}, body: { name: 'DAF Paris — Messieurs' } });
   assert.equal(changesData('copy_contacts_to_list', JSON.stringify(result)), true);
-  assert.deepEqual(cardsForTool('copy_contacts_to_list', JSON.stringify(result)), [{ kind: 'lists', items: [{ id: 888, name: 'DAF Paris — Messieurs' }] }]);
+  assert.deepEqual(cardsForTool('copy_contacts_to_list', JSON.stringify(result)), [{ kind: 'lists', items: [{ id: 888, name: 'DAF Paris — Messieurs' }], purpose: 'created' }]);
 });
 
 test('an existing destination is verified and receives one copy without being renamed', async t => {
@@ -147,7 +147,7 @@ test('catalogue calls preserve the filter and cannot bypass selection validation
   const result = await run(args, 'run_operation');
   assert.equal(result.list_id, 777);
   assert.equal(changesData('run_operation', JSON.stringify(result), JSON.stringify(args)), true);
-  assert.deepEqual(cardsForTool('run_operation', JSON.stringify(result), JSON.stringify(args)), [{ kind: 'lists', items: [{ id: 777, name: 'Destination' }] }]);
+  assert.deepEqual(cardsForTool('run_operation', JSON.stringify(result), JSON.stringify(args)), [{ kind: 'lists', items: [{ id: 777, name: 'Destination' }], purpose: 'created' }]);
   assert.equal((await run({ destination_list_id: 777 })).error, 'copy_already_requested');
   for (const selection of [{ filter, contact_ids: [1] }, { filter, reverse_selection: true }, { filter, unexpected: true }]) {
     assert.equal((await run({ ...args, body: { contacts_selection: selection } }, 'run_operation')).error, 'invalid_contact_selection');

@@ -56,6 +56,20 @@ const DATABASE_FILTER_SCHEMA = {
   additionalProperties: false,
 };
 
+const CONTACT_LIST_QUERY_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    query: { type: 'string', description: 'Filtre sur le nom (contient, insensible à la casse). Optionnel.' },
+    sort: {
+      type: 'string', enum: ['contacts', 'emails', 'linkedin', 'companies', 'recent', 'name'],
+      description: 'Tri sur TOUT le compte : compteurs décroissants, recent ou name. Défaut : recent.',
+    },
+    limit: { type: 'number', description: 'Max 50. Défaut : 20 pour une lecture, 50 pour un choix.' },
+    page: { type: 'number', description: 'Page dans le résultat trié (défaut 1).' },
+  },
+};
+
 export const AI_TOOLS = [
   DOCUMENT_TOOL,
   ...EXTENDED_TOOLS,
@@ -192,21 +206,16 @@ export const AI_TOOLS = [
     function: {
       name: "list_contact_lists",
       description:
-        "Listes de contacts du compte. Balaie TOUTES les listes (pas seulement une page) : le tri et la recherche portent donc sur l'intégralité du compte. Renvoie aussi les totaux (nombre de listes, total de contacts). Utilise sort=\"contacts\" pour « mes plus grandes listes ».",
-      parameters: {
-        type: "object",
-        properties: {
-          query: { type: "string", description: "Filtre sur le nom (contient, insensible à la casse). Optionnel." },
-          sort: {
-            type: "string",
-            enum: ["contacts", "emails", "linkedin", "companies", "recent", "name"],
-            description:
-              "Tri sur TOUT le compte : contacts/emails/linkedin/companies = décroissant (les plus grandes d'abord), recent = plus récentes, name = alphabétique. Défaut : recent.",
-          },
-          limit: { type: "number", description: "Nombre de listes à renvoyer (défaut 20, max 50)." },
-          page: { type: "number", description: "Page dans le résultat trié (défaut 1)." },
-        },
-      },
+        "Lecture des listes, SANS carte visible. Balaie TOUTES les listes : tri, recherche et totaux portent sur l'intégralité du compte. Utilise sort=\"contacts\" pour « mes plus grandes listes ». Pour faire choisir une liste à l'utilisateur, utilise ask_contact_list.",
+      parameters: CONTACT_LIST_QUERY_SCHEMA,
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'ask_contact_list',
+      description: 'Afficher les vraies listes du compte en cartes cliquables UNIQUEMENT quand l’utilisateur doit choisir une liste : demande explicite de sélection, cible non précisée ou noms ambigus. Attendre son choix. Ne pas appeler pour lire/analyser une liste déjà désignée, afficher un classement ou annoncer le résultat d’une action.',
+      parameters: CONTACT_LIST_QUERY_SCHEMA,
     },
   },
   {
@@ -409,6 +418,7 @@ export const TOOL_LABELS = {
   get_campaign_statistics: "Statistiques de campagne",
   get_campaign: "Détail de la campagne",
   list_contact_lists: "Lecture des listes",
+  ask_contact_list: "Choix de la liste",
   get_contact_list: "Détail de la liste",
   query_contacts: "Lecture des contacts",
   list_contact_fields: "Lecture des champs",
@@ -598,8 +608,9 @@ export async function executeTool(name, argsRaw, auth, context = {}) {
         return cap(r.data, 12000);
       }
 
+      case "ask_contact_list":
       case "list_contact_lists": {
-        const limit = Math.min(Math.max(Number(args.limit) || 20, 1), 50);
+        const limit = Math.min(Math.max(Number(args.limit) || (name === 'ask_contact_list' ? 50 : 20), 1), 50);
         const page = Math.max(Number(args.page) || 1, 1);
         const query = typeof args.query === "string" ? args.query.trim().toLowerCase() : "";
         const sort = typeof args.sort === "string" ? args.sort : "recent";

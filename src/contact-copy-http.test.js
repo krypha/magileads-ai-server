@@ -71,7 +71,7 @@ async function fixture(t, { catalog = false, importMode = false } = {}) {
   return { requests, providerRequests, chat };
 }
 
-for (const catalog of [false, true]) test(`HTTP ${catalog ? 'catalogue' : 'dedicated'} copy emits a destination card and changed event once, even if the model repeats the copy`, { timeout: 10000 }, async t => {
+for (const catalog of [false, true]) test(`HTTP ${catalog ? 'catalogue' : 'dedicated'} copy emits a hidden creation receipt and changed event once, even if the model repeats the copy`, { timeout: 10000 }, async t => {
   const { requests, chat } = await fixture(t, { catalog });
   const text = await chat({ messages: [{ role: 'user', content: 'Copie les messieurs de DAF Paris vers la destination choisie.' }] });
   assert.equal(requests.filter(req => req.method === 'POST' && req.path.endsWith('/copy')).length, 1);
@@ -79,7 +79,7 @@ for (const catalog of [false, true]) test(`HTTP ${catalog ? 'catalogue' : 'dedic
   assert.equal((text.match(/event: assistant.changed/g) ?? []).length, 1);
   assert.equal((text.match(/event: assistant.card/g) ?? []).length, 1);
   assert.match(text, /"creates_list":true/);
-  assert.ok(text.includes(JSON.stringify({ kind: 'lists', items: [{ id: catalog ? 777 : 888, name: catalog ? 'Destination' : 'Messieurs Paris' }] })));
+  assert.ok(text.includes(JSON.stringify({ kind: 'lists', items: [{ id: catalog ? 777 : 888, name: catalog ? 'Destination' : 'Messieurs Paris' }], purpose: 'created' })));
   assert.ok(requests.every(req => req.method !== 'DELETE'));
   assert.doesNotMatch(text, /\[\[ACTION\]\]|event: assistant.error/);
   assert.match(text, /data: \[DONE\]/);

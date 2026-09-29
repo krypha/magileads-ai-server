@@ -14,17 +14,16 @@ export function cardsForTool(name, raw, argsRaw = '{}') {
   try { result = JSON.parse(raw); args = JSON.parse(argsRaw); } catch { return []; }
   if (!result || result.error || result._truncated) return [];
   if ((name === 'copy_contacts_to_list' || name === 'run_operation' && args.operation === 'copy_contacts_to_list') && result.status === 'accepted' && result.list_id) {
-    return [{ kind: 'lists', items: [{ id: result.list_id, name: result.list_name ?? `#${result.list_id}` }] }];
+    return [{ kind: 'lists', items: [{ id: result.list_id, name: result.list_name ?? `#${result.list_id}` }], purpose: 'created' }];
   }
   if (name === 'create_document' && result.status === 'document_ready') return [{ kind: 'document', document: result.document }];
   if (name === 'connect_email') return [{ kind: 'email' }];
   if (name === 'open_commercial_form') return [{ kind: 'form', form: result.form }];
-  if (name === 'list_contact_lists') return [{ kind: 'lists', items: result.lists ?? [], total: result.matched ?? result.total ?? result.total_lists }];
-  if (name === 'get_contact_list') return [{ kind: 'lists', items: [result] }];
+  if (name === 'ask_contact_list' && result.lists?.length) return [{ kind: 'lists', items: result.lists, total: result.matched ?? result.total ?? result.total_lists, purpose: 'selection' }];
   if (name === 'list_campaigns') return [{ kind: 'campaigns', items: result.campaigns ?? [], total: result.total }];
   if (name === 'list_dropcontact_connections') return [{ kind: 'connections', items: result.connections ?? [] }];
   if (name === 'query_prm_contacts') return [{ kind: 'leads', items: (result.contacts ?? []).map(contact => ({ id: contact.id, name: [contact.first_name, contact.last_name].filter(Boolean).join(' ') || `#${contact.id}`, status: contact.status ?? null, new_reply: contact.new_reply ?? null })), total: result.total }];
-  if (['run_linkedin_targeting', 'run_google_maps_targeting', 'run_sales_navigator_targeting', 'run_database_targeting'].includes(name) && result.list_id) return [{ kind: 'lists', items: [{ id: result.list_id, name: result.list_name }] }];
+  if (['run_linkedin_targeting', 'run_google_maps_targeting', 'run_sales_navigator_targeting', 'run_database_targeting'].includes(name) && result.list_id) return [{ kind: 'lists', items: [{ id: result.list_id, name: result.list_name }], purpose: 'created' }];
   if (name === 'run_operation' && result.status === 'accepted') {
     if (args.operation === 'duplicate_contact_list') return [{ kind: 'result', operation: args.operation, id: result.data?.contact_list_id ?? null }];
     if (args.operation === 'enrich_dropcontact') return [{ kind: 'result', operation: args.operation, id: result.resource_id ?? null }];

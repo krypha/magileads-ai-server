@@ -65,7 +65,7 @@ test('database preview resolves locations, extraction uses the same filters and 
     const result = await executeTool('run_database_targeting', JSON.stringify({ filters, list_name: 'Paris prospects', max_results: 99999 }), auth, { profile });
     assert.equal(JSON.parse(result).list_id, 99);
     assert.equal(changesData('run_database_targeting', result), true);
-    assert.deepEqual(cardsForTool('run_database_targeting', result), [{ kind: 'lists', items: [{ id: 99, name: 'Paris prospects' }] }]);
+    assert.deepEqual(cardsForTool('run_database_targeting', result), [{ kind: 'lists', items: [{ id: 99, name: 'Paris prospects' }], purpose: 'created' }]);
     assert.equal(paths.filter(path => path === '/targeting/database/extract').length, 1);
   } finally { global.fetch = previous; }
 });
@@ -146,7 +146,7 @@ test('Google Maps and classic LinkedIn append to an owned list without creating 
   };
   try {
     const maps = await executeTool('run_google_maps_targeting', JSON.stringify({ search: 'dentistes', locations: ['Paris'], contact_list_id: 55 }), auth);
-    assert.deepEqual(cardsForTool('run_google_maps_targeting', maps), [{ kind: 'lists', items: [{ id: 55, name: 'Liste existante' }] }]);
+    assert.deepEqual(cardsForTool('run_google_maps_targeting', maps), [{ kind: 'lists', items: [{ id: 55, name: 'Liste existante' }], purpose: 'created' }]);
     const linkedin = await executeTool('run_linkedin_targeting', JSON.stringify({ title: 'CEO', location: 'Paris', linkedin_account_id: 7, contact_list_id: 55 }), auth);
     assert.equal(JSON.parse(linkedin).criteria_applied.location_used, 'Paris');
     assert.equal(extracts.length, 2);

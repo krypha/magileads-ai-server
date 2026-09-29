@@ -8,6 +8,52 @@ Le serveur conserve les outils de lecture/ciblage existants et ajoute un catalog
 
 ## Comportement
 
+### Cartes de listes uniquement pour choisir
+
+`list_contact_lists` et `get_contact_list` sont des lectures sans carte visible.
+Une liste nommée ou indiquée par ID peut être analysée ou utilisée sans imposer
+un nouveau choix. Les classements demandés sont présentés en texte/Markdown.
+Après une action, la réponse annonce le résultat et peut fournir le lien de liste.
+
+Pour demander un choix (bouton « Choisir une liste », cible manquante ou nom
+ambigu), le modèle appelle `ask_contact_list`, puis attend la sélection :
+
+```ts
+{
+  query?: string;
+  sort?: "contacts" | "emails" | "linkedin" | "companies" | "recent" | "name";
+  limit?: number; // défaut 50, maximum 50
+  page?: number; // défaut 1
+}
+```
+
+Cet outil lit les mêmes listes réelles du compte que `list_contact_lists`, sans
+mutation, et produit uniquement si des listes sont disponibles :
+
+```text
+event: assistant.card
+data: {"kind":"lists","items":[{"id":69964,"name":"DAF Paris","contacts":36,"emails":19,"linkedin":36}],"total":1,"purpose":"selection"}
+```
+
+Le champ `purpose` vaut `"selection"` ou `"created"`. Seules les cartes de
+listes avec `purpose:"selection"` sont affichées par v5 ; les anciennes cartes
+sans ce champ sont masquées aussi dans l’historique. Les autres types de cartes
+restent affichés. Le texte n’est pas retiré au profit d’une carte masquée.
+
+Les outils de copie et de ciblage conservent le contrat d’import :
+`tool.progress` avec `creates_list:true`, puis `assistant.card` avec
+`{kind:"lists",items:[{id,name}],purpose:"created"}`. Ce reçu invisible permet
+toujours l’écran « Recherche lancée » et son lien vers la liste. Un choix de
+liste n’est jamais traité comme une création ; les reçus d’un ancien serveur
+sans `purpose` restent reconnus par l’import pendant le déploiement.
+
+Vérifié le 29 septembre 2026 : 72 tests serveur et 36 tests front passent,
+y compris l’import et les propositions de suppression. Le smoke fournisseur
+réel avec Deepseek Pro et des données Magileads fictives confirme : copie vers
+une liste nouvelle/existante et comptage sans sélecteur, classement en tableau,
+choix explicite avec un sélecteur. Aucun appel à l’API de données client ;
+coût fournisseur du smoke d’environ 0,0362 USD.
+
 ### Documents Word, CSV et Excel
 
 L’outil `create_document` prépare une carte téléchargeable, disponible dans
@@ -274,8 +320,9 @@ relancer ni supprimer la copie. Aucun contact de la source n’est supprimé.
 Succès : `{operation:"copy_contacts_to_list",status:"accepted",source_list_id,
 source_list_name,list_id,list_name,matched_contacts,criteria_applied:{filter},
 warnings:[],note}`. Le nombre est celui de l’aperçu, pas un résultat définitif du
-job. Le serveur émet `tool.progress` avec `creates_list:true`, une carte `lists`
-portant l’ID de destination, et `assistant.changed`. Sans correspondance, il
+job. Le serveur émet `tool.progress` avec `creates_list:true`, un reçu `lists`
+avec `purpose:"created"` portant l’ID de destination, et `assistant.changed`.
+Le reçu n’est pas une carte de choix affichée par v5. Sans correspondance, il
 renvoie `status:"no_matches"` sans mutation. Sans ID exploitable après un
 succès API, il signale cette limite sans inventer de carte ni relancer le job.
 Une répétition de la même copie est refusée au sein de la requête SSE.
@@ -371,7 +418,7 @@ Pour alimenter une liste existante, les deux clés deviennent `"contact_list_nam
 
 Chaque `run_*` réussi retourne `{status:"extraction lancée", list_id, list_name, criteria_applied, note}`. Les extractions Sales Navigator rapportent les filtres ignorés dans `criteria_applied.ignored_filters` et `note`. Les codes de secteur viennent du catalogue du sélecteur v4 ; effectifs et niveaux utilisent les valeurs exposées dans le Swagger Magileads. Pour chacun, le serveur compare l'URL obtenue avec et sans filtre avant de l'annoncer comme appliqué. Les événements existants restent inchangés : `tool.progress` avec `creates_list:true`, puis `assistant.card` `{kind:"lists", items:[{id,name}]}` sur succès, et `assistant.changed` pour invalider les données.
 
-`SERVER_URL=... TOKEN=... node examples/import-smoke.mjs` imprime le flux réel sans lancer d'extraction. Définir en plus `VALIDATE_NAME="Nom"` envoie la validation et autorise une extraction réelle. Le script échoue si une carte de liste ou un progrès de création arrive avant validation.
+`SERVER_URL=... TOKEN=... node examples/import-smoke.mjs` imprime le flux réel sans lancer d'extraction. Définir en plus `VALIDATE_NAME="Nom"` envoie la validation et autorise une extraction réelle. Le script échoue si un reçu de création de liste ou un progrès de création arrive avant validation ; un choix de liste est permis.
 
 Le Swagger public de `https://app.api-magileads.net/swagger.json` confirme les chemins, les champs `contact_list_id` des trois extractions, les schémas de filtres et les enums `CompanyHeadCount` / `SeniorityLevel`. Aucun appel authentifié aux endpoints de génération, comptage ou extraction n'a été effectué lors de cette implémentation ; l'acceptation effective des valeurs et les permissions d'un compte réel restent à vérifier avec un `TOKEN` de test. Les tests HTTP locaux simulent ces réponses et vérifient les payloads, les cartes et le blocage avant validation.
 

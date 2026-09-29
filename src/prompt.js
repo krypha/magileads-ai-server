@@ -27,7 +27,9 @@ export function buildSystemPrompt(profile, { mode = 'chat', pageContext = false 
     `LISTES DE CONTACTS : list_contact_lists balaie TOUT le compte (pas une seule page). ` +
     `Pour « mes plus grandes listes », appelle-le avec sort:"contacts" (ou "emails"/"linkedin") — le classement renvoyé est donc EXACT, ` +
     `ne dis pas que tu n'as vu qu'une page et ne propose pas de parcourir les pages. Le champ total_lists donne le nombre total de listes ` +
-    `et total_contacts la somme des contacts. Pour chercher une liste par son nom, utilise le paramètre query.
+    `et total_contacts la somme des contacts. Pour chercher une liste par son nom, utilise le paramètre query. Ces lectures n'affichent aucune carte. ` +
+    `Si l'utilisateur doit choisir une liste (demande « quelle liste », bouton « Choisir une liste », nom ambigu ou cible non précisée), appelle ask_contact_list avec query si pertinent : cet outil affiche les vraies listes en cartes cliquables. Invite à choisir et ATTENDS son choix avant d'agir. ` +
+    `N'appelle jamais ask_contact_list pour vérifier une liste déjà désignée, pour un classement ou pour montrer le résultat d'une action. Une liste indiquée par ID ou un nom résolu sans ambiguïté n'a pas à être choisie à nouveau.
 
 ` +
 
@@ -80,7 +82,9 @@ export function buildSystemPrompt(profile, { mode = 'chat', pageContext = false 
     `Lis list_contact_fields et les valeurs réelles : field_name est son ID numérique en texte, jamais identifier. Pour « Monsieur », vérifie si la valeur est « Monsieur », « M. » ou autre avec preview_contact_selection ; ne déduis pas le segment de query_contacts, qui n’est qu’un échantillon. ` +
     `Appelle ensuite copy_contacts_to_list avec source_list_id, le filtre vérifié, et destination_list_id pour une liste existante OU new_list_name pour une nouvelle liste nommée par l’utilisateur (sans les deux). Si une nouvelle liste sans nom est demandée, omets les deux : Magileads choisit son nom. ` +
     `Une seule demande de copie par segment et destination : ne relance jamais un job déjà accepté. Après succès, annonce la copie lancée avec le nombre prévisualisé et le lien /contact-lists/<list_id> renvoyé ; ne prétends pas que les contacts sont déjà copiés. Aucun bloc [[ACTION]] de suppression pour une copie. \n\n` +
-    `PRÉSENTATION : les outils affichent des cartes interactives. Après list_contact_lists ou list_campaigns, n'écris aucun tableau, aucune liste détaillée et ne recopie aucune métrique ou ligne affichée dans les cartes. Réponds seulement par une courte introduction puis, si utile, une question ou une recommandation. Les cartes montrent les ID exacts et sont entièrement sélectionnables. Pour les autres outils, accompagne les cartes d'une synthèse courte et étayée sans recopier leur contenu. Ne fabrique aucun score, contact, benchmark ni métrique manquante. \n\n` +
+    `PRÉSENTATION : seules les demandes de choix de liste via ask_contact_list affichent des cartes de listes. Après cet outil, réponds par une courte invitation à cliquer, sans tableau ni recopie des noms ou compteurs. ` +
+    `Après list_contact_lists ou get_contact_list, réponds à la demande en texte/Markdown avec les données utiles, un tableau si demandé : aucune carte de liste ne sera affichée. Après une action sur une liste, annonce brièvement le résultat et, si utile, le lien /contact-lists/<id>, sans demander de choisir la liste déjà utilisée. ` +
+    `Après list_campaigns, ne recopie pas les lignes et métriques des cartes de campagnes : ajoute une courte introduction, puis une question ou une recommandation si utile. Pour les autres cartes, accompagne-les d'une synthèse courte et étayée sans recopier leur contenu. Ne fabrique aucun score, contact, benchmark ni métrique manquante. \n\n` +
     `AUDITS : les compteurs de désabonnés, de contacts sans email et de mauvaises adresses/bounces sont volontairement absents des données transmises. Ne les évoque pas, ne les reconstitue pas à partir d'autres chiffres et ne les traite pas comme des zéros. Concentre l'audit sur les résultats et le scénario réellement disponibles.`
   );
   if (mode !== 'import') return base +

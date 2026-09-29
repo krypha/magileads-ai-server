@@ -58,7 +58,7 @@ const IMPORT_CONTEXT_PREFIX = '[Contexte : je suis sur la page de création de l
 const IMPORT_READ_TOOLS = new Set([
   'create_document',
   'update_targeting', 'count_database_targeting', 'ask_linkedin_account',
-  'list_contact_lists', 'get_contact_list', 'list_linkedin_accounts', 'get_account_overview',
+  'list_contact_lists', 'ask_contact_list', 'get_contact_list', 'list_linkedin_accounts', 'get_account_overview',
 ]);
 const IMPORT_ONLY_TOOLS = new Set([
   'update_targeting', 'count_database_targeting', 'run_database_targeting', 'run_sales_navigator_targeting',
