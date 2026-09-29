@@ -1,5 +1,6 @@
 import { sanitize, forbiddenOperation } from './assistant-policy.js';
 import { usageLimitsEnabled } from './usage-policy.js';
+import { createDocument, DOCUMENT_TOOL } from './documents.js';
 import { EXTENDED_TOOLS, executeExtended } from './operations.js';
 import {
   countDatabase, hasPermission, normalizeTargeting, positiveId, resolveListTarget,
@@ -55,6 +56,7 @@ const DATABASE_FILTER_SCHEMA = {
 };
 
 export const AI_TOOLS = [
+  DOCUMENT_TOOL,
   ...EXTENDED_TOOLS,
   {
     type: 'function',
@@ -370,6 +372,7 @@ export const AI_TOOLS = [
 
 /** French label for the streaming tool indicator (the front can reuse this map). */
 export const TOOL_LABELS = {
+  create_document: "Préparation du document",
   discover_operations: "Recherche des fonctions disponibles",
   run_operation: "Exécution de l’action demandée",
   connect_email: "Connexion email sécurisée",
@@ -473,6 +476,9 @@ export async function executeTool(name, argsRaw, auth, context = {}) {
 
   try {
     if (!args || typeof args !== "object" || Array.isArray(args)) return cap({ error: "invalid_arguments" });
+    // Documents are already validated and sanitized, and transmitted as a card.
+    // Do not truncate their contents into a preview that cannot be downloaded.
+    if (name === 'create_document') return JSON.stringify(createDocument(args));
     if (name === 'update_targeting') return cap(normalizeTargeting(args));
     if (name === 'count_database_targeting' || name === 'run_database_targeting' || name === 'run_sales_navigator_targeting') {
       const me = context.profile ? { ok: true, data: { user_profile: context.profile } } : await getMe(auth);

@@ -8,6 +8,99 @@ Le serveur conserve les outils de lecture/ciblage existants et ajoute un catalog
 
 ## Comportement
 
+### Documents Word, CSV et Excel
+
+L’outil `create_document` prépare une carte téléchargeable, disponible dans
+l’assistant complet, la bulle et le mode import. Le navigateur v5 crée le fichier
+au clic : aucun fichier, chemin temporaire, upload, dépendance ou stockage `/data`
+n’est ajouté au serveur IA. Le contenu structuré reste dans l’historique du
+navigateur, rattaché au compte actif ; il peut être repris au tour suivant pour
+modifier le document. Aucun endpoint ni paramètre de connexion supplémentaire.
+
+Arguments de l’outil (champs facultatifs marqués `?`) :
+
+```ts
+{
+  format: "docx" | "csv" | "xlsx";
+  title: string;
+  filename?: string;
+  sections: Array<{
+    heading?: string;
+    paragraphs?: string[];
+    table?: {
+      columns: string[];
+      rows: Array<Array<string | number | boolean | null>>;
+    };
+  }>;
+}
+```
+
+- Word : au moins une section avec des paragraphes non vides ou un tableau.
+  Titres, paragraphes et tableaux natifs ; les grandes tables passent en paysage.
+- CSV : exactement une section et un tableau, sans paragraphes. UTF-8 avec BOM,
+  séparateur `;`, fins de lignes CRLF. Les chaînes susceptibles de devenir des
+  formules sont préfixées par une apostrophe ; les valeurs numériques restent
+  numériques. Les couleurs ne font pas partie de ce format.
+- Excel : un tableau par section, une feuille par section, sans paragraphes.
+  Format `.xlsx` (pas l’ancien `.xls`), noms de feuilles uniques, première ligne
+  figée, filtre et entêtes aux couleurs du revendeur. Les nombres et booléens
+  gardent leur type ; les chaînes restent du texte, jamais des formules.
+- Une ligne a exactement autant de cellules que de colonnes ; `null` produit
+  une cellule vide, jamais un zéro inventé. Limites intrinsèques Excel : 16 384
+  colonnes, 1 048 575 lignes de données plus l’entête, 32 767 caractères par
+  cellule (entêtes inclus). Les téléphones/codes postaux sont transmis en texte.
+- Les formats et dimensions invalides échouent sans carte. Les noms de fichiers
+  sont nettoyés et leur extension imposée. Les propriétés inconnues, secrets et
+  diagnostics exclus sont retirés ; les colonnes/lignes exclues sont retirées
+  ensemble pour préserver l’alignement des données.
+
+Résultat de l’outil : `{status:"document_ready", document:{format,title,filename,sections}}`.
+Le serveur transmet ce même document au front via le contrat SSE existant :
+
+```text
+event: tool.progress
+data: {"tool":"create_document","label":"Préparation du document","status":"running","creates_list":false}
+
+event: tool.progress
+data: {"tool":"create_document","label":"Préparation du document","status":"completed","creates_list":false}
+
+event: assistant.card
+data: {"kind":"document","document":{"format":"xlsx","title":"Matrice","filename":"Matrice.xlsx","sections":[{"heading":"Contacts","table":{"columns":["Métier","Localisation du contact","Contacts"],"rows":[["Marketing / CMO","Île-de-France",24],["Juridique / légal","Germany",null]]}}]}}
+```
+
+`changesData` est faux et aucun `assistant.changed` ni lancement de liste n’est
+émis. Le contenu de la carte n’est pas tronqué par la limite générique des
+résultats d’outils : le téléchargement doit contenir le document entier.
+Le message `tool` renvoyé au modèle ne contient que le reçu (format, titre,
+fichier, nombre de sections/lignes) ; cela évite d’y répéter le document entier.
+Les limites de requête et du fournisseur restent celles déjà configurées.
+
+Word et Excel utilisent le nom et les couleurs du revendeur résolus par le front,
+jamais une marque inventée par le modèle. Aucun code, macro ou ressource externe
+n’est inclus dans ces fichiers. La demande doit concerner des données Magileads,
+un rapport ou des messages de prospection ; un format Word/Excel seul n’autorise
+pas une question hors périmètre. Le modèle ne doit jamais prétendre avoir créé
+un fichier avec un tableau Markdown ou un lien inventé.
+
+Validation : `node --test src/documents*.test.js` couvre les trois formats, la
+validation/sanitation, les contenus de plus de 12 000 caractères, l’absence
+d’appel API/mutation et le flux SSE réel avec modèle/API simulés. Le front teste
+la lecture des ZIP Word et des classeurs Excel avec le lecteur SheetJS déjà
+installé, les cellules natives, les couleurs du revendeur, le CSV, les cartes
+fragmentées en SSE et la reprise du contenu dans l’historique.
+
+`examples/documents-model-smoke.mjs` vérifie aussi le contrôleur de périmètre et
+l’appel réel de `create_document` pour les trois formats, avec deux lignes
+fictives et sans aucune API de données Magileads. Variables : `AI_API_KEY`,
+`AI_MODEL` et, facultativement, `DOCUMENT_TEST_MODEL`. Le 29 septembre 2026,
+les trois formats ont réussi avec `deepseek/deepseek-v4-pro` : deux lignes,
+types et critères conservés, coût fournisseur total d’environ 0,0057 USD.
+Les packages générés par le front ont aussi été ouverts avec `python-docx`
+et `openpyxl`, en vérifiant les CRC ZIP, tous les XML, les tableaux, les valeurs
+manquantes, la marque, les couleurs, le filtre et la première ligne figée.
+La sortie en production dans une conversation authentifiée reste à vérifier
+après déploiement ; ce test réel porte sur le fournisseur et les données fictives.
+
 ### Périmètre et budget des demandes
 
 **Tests temporaires sans plafonds :** définir `AI_TEST_UNLIMITED_UNTIL` sur le

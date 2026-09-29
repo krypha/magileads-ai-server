@@ -12,6 +12,7 @@ export function cardsForTool(name, raw, argsRaw = '{}') {
   let result, args;
   try { result = JSON.parse(raw); args = JSON.parse(argsRaw); } catch { return []; }
   if (!result || result.error || result._truncated) return [];
+  if (name === 'create_document' && result.status === 'document_ready') return [{ kind: 'document', document: result.document }];
   if (name === 'connect_email') return [{ kind: 'email' }];
   if (name === 'open_commercial_form') return [{ kind: 'form', form: result.form }];
   if (name === 'list_contact_lists') return [{ kind: 'lists', items: result.lists ?? [], total: result.matched ?? result.total ?? result.total_lists }];

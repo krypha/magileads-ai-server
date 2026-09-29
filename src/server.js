@@ -30,6 +30,7 @@ import { checkIncludedBudget, sharedPromptTooLarge, RequestBudget, INCLUDED_MAX_
 import { redactHiddenAuditText } from './assistant-policy.js';
 import { IncludedWorkload, SCOPE_TOOL, scopeConversation, scopeDecision, scopeRequestOptions } from './request-policy.js';
 import { usageLimitsEnabled } from './usage-policy.js';
+import { documentReceipt } from './documents.js';
 
 const PORT = Number(process.env.PORT) || 8787;
 const AI_API_KEY = process.env.AI_API_KEY;
@@ -55,6 +56,7 @@ const MAX_BODY_BYTES = 1_000_000;
 const RATE_LIMIT_PER_MIN = Number(process.env.RATE_LIMIT_PER_MIN) || 20;
 const IMPORT_CONTEXT_PREFIX = '[Contexte : je suis sur la page de création de liste';
 const IMPORT_READ_TOOLS = new Set([
+  'create_document',
   'update_targeting', 'count_database_targeting', 'ask_linkedin_account',
   'list_contact_lists', 'get_contact_list', 'list_linkedin_accounts', 'get_account_overview',
 ]);
@@ -556,7 +558,7 @@ async function handleChat(req, res, cors) {
         if (changesData(c.name, result, c.args)) sendEvent("assistant.changed", {});
         for (const card of cardsForTool(c.name, result, c.args)) sendEvent("assistant.card", card);
         workload?.observe(c.name, result);
-        convo.push({ role: "tool", tool_call_id: c.id, content: result });
+        convo.push({ role: "tool", tool_call_id: c.id, content: c.name === 'create_document' ? documentReceipt(result) : result });
       }
     }
     // Certains modèles (préversions "stealth"…) répondent 200 sans rien émettre :
