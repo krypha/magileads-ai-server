@@ -1,5 +1,6 @@
 import { request } from './magileads.js';
 import { forbiddenOperation, hasSecret, sanitize } from './assistant-policy.js';
+import { copyContactsToList } from './contact-copy.js';
 
 // Explicit routes only. The model never chooses a URL, HTTP verb, or headers.
 // Bodies use the same names as v5/src/lib/api and v4/src/api/ContactAPI.js.
@@ -8,6 +9,7 @@ function add(name, group, method, path, fields = [], required = [], description 
   operations.push({ name, group, method, path, fields, required, description });
 }
 add('duplicate_contact_list', 'lists', 'POST', '/contact-lists/:id/copy', [], [], 'Dupliquer intégralement une liste. Renvoie contact_list_id.');
+add('copy_contacts_to_list', 'lists', 'POST', '/contact-lists/:id/copy', ['contacts_selection', 'contact_list_id_destination'], ['contacts_selection'], 'Copier un segment filtré vers une liste existante ou nouvelle. Préférer l’outil dédié copy_contacts_to_list. contacts_selection={contact_ids:[],filter:{mode,values},excluded_contact_ids:[],reverse_selection:false}. Omettre contact_list_id_destination pour une nouvelle liste.');
 add('enrich_dropcontact', 'lists', 'POST', '/contact-lists/:id/enrich/external/dropcontact/:key_id', ['filter'], [], 'Lancer un enrichissement asynchrone Dropcontact ; utilise uniquement un ID de clé de list_dropcontact_connections. Peut consommer des crédits.');
 add('create_contact_list', 'lists', 'POST', '/contact-lists', ['name', 'folder_id', 'tags_ids'], ['name']);
 add('update_contact_list', 'lists', 'PUT', '/contact-lists/:id', ['name', 'folder_id', 'tags_ids', 'language', 'country', 'pin']);
@@ -113,7 +115,7 @@ export const EXTENDED_TOOLS = [
   ['list_dropcontact_connections', 'Lister les connexions Dropcontact disponibles (identifiants et noms uniquement, jamais les secrets).', {}, []],
 ].map(([name, description, properties, required]) => ({ type: 'function', function: { name, description, parameters: { type: 'object', properties, required, additionalProperties: false } } }));
 
-export async function executeExtended(name, args, auth) {
+export async function executeExtended(name, args, auth, context = {}) {
   if (name === 'open_commercial_form') return ['import', 'files', 'campaign', 'models', 'senders'].includes(args.form) ? { ui: 'form', form: args.form, status: 'awaiting_user' } : { error: 'unknown_form' };
   if (name === 'connect_email') return { ui: 'connect_email', status: 'awaiting_user', note: 'Le formulaire crée le compte directement auprès de Magileads. Aucun mot de passe ne passe par ce serveur IA.' };
   if (name === 'discover_operations') return { operations: OPERATIONS.filter(op => !args.group || op.group === args.group).map(({ method, path, ...op }) => ({ ...op, params: [...path.matchAll(/:([a-z_]+)/g)].map(match => match[1]) })) };
@@ -134,6 +136,15 @@ export async function executeExtended(name, args, auth) {
     return encodeURIComponent(value);
   });
   if (!valid) return { error: 'invalid_resource_id' };
+  if (op.name === 'copy_contacts_to_list') {
+    const selection = body.contacts_selection;
+    if (!selection || typeof selection !== 'object' || Array.isArray(selection) ||
+      Object.keys(selection).some(key => !['filter', 'contact_ids', 'excluded_contact_ids', 'reverse_selection'].includes(key)) ||
+      ['contact_ids', 'excluded_contact_ids'].some(key => selection[key] != null && (!Array.isArray(selection[key]) || selection[key].length)) ||
+      (selection.reverse_selection != null && selection.reverse_selection !== false)) return { error: 'invalid_contact_selection' };
+    return copyContactsToList({ source_list_id: params.id, filter: selection.filter,
+      destination_list_id: body.contact_list_id_destination }, auth, context);
+  }
   if (op.name === 'schedule_campaign') {
     if (!Array.isArray(body.contactlist_ids) || !body.contactlist_ids.length || !weekdays.some(day => body[`allowed_${day}`] === true) || body.time_stop_sending <= body.time_start_sending || (body.date_stop && body.date_stop < body.date_start)) return { error: 'invalid_schedule' };
   }

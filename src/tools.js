@@ -2,6 +2,7 @@ import { sanitize, forbiddenOperation } from './assistant-policy.js';
 import { usageLimitsEnabled } from './usage-policy.js';
 import { createDocument, DOCUMENT_TOOL } from './documents.js';
 import { EXTENDED_TOOLS, executeExtended } from './operations.js';
+import { CONTACT_COPY_FILTER_SCHEMA, copyContactsToList } from './contact-copy.js';
 import {
   countDatabase, hasPermission, normalizeTargeting, positiveId, resolveListTarget,
   runDatabase, runSalesNavigator, usableLinkedInAccount,
@@ -58,6 +59,19 @@ const DATABASE_FILTER_SCHEMA = {
 export const AI_TOOLS = [
   DOCUMENT_TOOL,
   ...EXTENDED_TOOLS,
+  {
+    type: 'function',
+    function: {
+      name: 'copy_contacts_to_list',
+      description: 'Copier TOUS les contacts correspondant à un filtre vers une liste existante ou nouvelle, sans supprimer ni limiter aux échantillons. Résoudre la source, les champs et la destination ; demander la destination si ambiguë. Copie asynchrone.',
+      parameters: { type: 'object', additionalProperties: false, required: ['source_list_id', 'filter'], properties: {
+        source_list_id: { type: 'number', description: 'ID réel de la liste source.' },
+        filter: CONTACT_COPY_FILTER_SCHEMA,
+        destination_list_id: { type: 'number', description: 'ID d’une liste existante du compte. Omettre pour créer une nouvelle liste.' },
+        new_list_name: { type: 'string', description: 'Nom explicitement demandé pour la nouvelle liste ; exclusif avec destination_list_id. Sans nom, Magileads nomme la copie.' },
+      } },
+    },
+  },
   {
     type: 'function',
     function: {
@@ -400,6 +414,7 @@ export const TOOL_LABELS = {
   list_contact_fields: "Lecture des champs",
   list_linkedin_accounts: "Comptes LinkedIn",
   preview_contact_selection: "Comptage de la sélection",
+  copy_contacts_to_list: 'Copie des contacts filtrés',
   list_prm_statuses: "Statuts du pipeline",
   query_prm_contacts: "Lecture des prospects",
   get_prm_contact: "Fiche prospect",
@@ -414,7 +429,12 @@ export const TOOL_LABELS = {
 };
 
 /** Tools that create/fill a contact list → the front can watch for completion. */
-export const CREATES_LIST = ["run_google_maps_targeting", "run_linkedin_targeting", "run_sales_navigator_targeting", "run_database_targeting"];
+export const CREATES_LIST = ["run_google_maps_targeting", "run_linkedin_targeting", "run_sales_navigator_targeting", "run_database_targeting", 'copy_contacts_to_list'];
+
+export function createsListForTool(name, argsRaw = '{}') {
+  if (CREATES_LIST.includes(name)) return true;
+  try { return name === 'run_operation' && JSON.parse(argsRaw).operation === 'copy_contacts_to_list'; } catch { return false; }
+}
 
 /* --------------------------------- helpers -------------------------------- */
 
@@ -497,6 +517,7 @@ export async function executeTool(name, argsRaw, auth, context = {}) {
     // Documents are already validated and sanitized, and transmitted as a card.
     // Do not truncate their contents into a preview that cannot be downloaded.
     if (name === 'create_document') return JSON.stringify(createDocument(args));
+    if (name === 'copy_contacts_to_list') return cap(await copyContactsToList(args, auth, context), 32000);
     if (name === 'update_targeting') return cap(normalizeTargeting(args));
     if (name === 'count_database_targeting' || name === 'run_database_targeting' || name === 'run_sales_navigator_targeting') {
       const me = context.profile ? { ok: true, data: { user_profile: context.profile } } : await getMe(auth);
@@ -507,7 +528,7 @@ export async function executeTool(name, argsRaw, auth, context = {}) {
           : await runSalesNavigator(args, auth, profile);
       return cap(result, result.list_id ? 32000 : 12000);
     }
-    const extended = await executeExtended(name, args, auth);
+    const extended = await executeExtended(name, args, auth, context);
     if (extended !== null) return cap(extended, name === "discover_operations" ? 50000 : 12000);
     switch (name) {
       case "get_account_overview": {
@@ -791,7 +812,7 @@ export async function executeTool(name, argsRaw, auth, context = {}) {
         return cap({
           list_id: id,
           count,
-          note: "Lecture seule : aucune modification. Une proposition de suppression de contacts est affichée par le front, qui vérifie l’aperçu et demande une confirmation humaine avant de la réaliser.",
+          note: "Lecture seule : aucune modification. Ce comptage peut servir à une copie filtrée ou à une proposition de suppression. La suppression est réalisée par le front seulement après aperçu et confirmation humaine.",
         });
       }
 

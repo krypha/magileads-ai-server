@@ -181,6 +181,7 @@ simulées ; aucun audit massif ni import réel n’a été lancé pour ce chanti
 - Le serveur IA ne déclenche toujours **aucun DELETE** : ses outils de suppression, `run_operation` et le client API les refusent. Une confirmation textuelle dans `/assistant` n’autorise actuellement aucune suppression côté serveur. La suppression locale d’une conversation reste disponible.
 - Connexion Google/Microsoft ou SMTP/IMAP via les composants Expéditeurs existants. Les mots de passe du formulaire ne sont pas transmis à la fonction de chat ni enregistrés dans son historique. OAuth conserve le parcours et les contrôles de marque blanche existants.
 - Duplication : POST /contact-lists/{id}/copy, restitution du nouvel ID quand disponible.
+- Copie de contacts filtrés : `copy_contacts_to_list`, vers une liste existante ou nouvelle ; le filtre complet est transmis à l’API, sans limiter la copie à l’échantillon de `query_contacts`.
 - Dropcontact : seules les connexions de type dropcontact du compte sont proposées. Le modèle reçoit uniquement leur ID et nom. Vérification de la connexion avant lancement. Le résultat indique que le traitement a été accepté, jamais un enrichissement terminé sans preuve.
 - Cartes v0 adaptées aux résultats réels : campagnes/KPI, listes/compteurs/actions, prospects, choix Dropcontact et fournisseurs email. Les valeurs absentes s’affichent « — ». Aucune reprise des faux contacts, scores et chiffres du prototype v0.
 - ID des listes/campagnes/prospects sélectionnables directement ; workflow_id distingué de l’ID de campagne.
@@ -222,6 +223,83 @@ réessai automatique. `node --env-file=.env examples/contact-actions-model-smoke
 exerce le modèle configuré avec des données Magileads entièrement fictives,
 sans appeler les données clients ni effectuer de suppression. Le modèle peut
 être précisé par `ACTION_TEST_MODEL` ; le script affiche les contrôles et le coût.
+
+### Copier un segment de contacts vers une liste
+
+L’outil `copy_contacts_to_list` accepte ce schéma d’arguments :
+
+```json
+{
+  "source_list_id": 69964,
+  "filter": {"mode":"and","values":[{"field_name":"2","type":"equals","value":"Monsieur"}]},
+  "destination_list_id": 777
+}
+```
+
+`source_list_id` et `filter` sont requis. `destination_list_id` désigne une
+destination existante, vérifiée avec le jeton de l’appelant. Pour une nouvelle
+liste, omettre ce champ ; `new_list_name` peut préciser le nom demandé par
+l’utilisateur. Ces deux champs de destination sont exclusifs. Sans nom,
+Magileads nomme la nouvelle copie. Si la destination de la demande est ambiguë,
+le modèle doit la faire choisir avant de copier.
+
+Le filtre accepte les groupes `and|or` imbriqués et les opérateurs documentés
+`start_with`, `end_with`, `equals`, `not_equals`, `contains`, `not_contains`,
+`more_than`, `more_or_equal_than`, `less_than`, `less_or_equal_than`, `does_exist`
+et `does_not_exist`. `field_name` est un ID numérique en texte, vérifié contre
+`/data-fields` ; `value` est une chaîne ou un tableau non vide de chaînes.
+Les opérateurs de présence sont envoyés avec `value:""`. Un filtre vide, un
+champ inconnu, une destination inaccessible ou identique à la source est refusé.
+
+Après vérification de la source, de ses champs et du comptage en lecture seule,
+le serveur appelle `POST /contact-lists/{source_list_id}/copy` avec :
+
+```json
+{
+  "contacts_selection": {
+    "contact_ids": [],
+    "filter": {"mode":"and","values":[{"field_name":"2","type":"equals","value":"Monsieur"}]},
+    "excluded_contact_ids": [],
+    "reverse_selection": false
+  },
+  "contact_list_id_destination": 777
+}
+```
+
+Pour une nouvelle liste, `contact_list_id_destination` est omis. Si un nom a
+été demandé, le serveur renomme uniquement l’ID créé par cette copie avec
+`PUT /contact-lists/{id}` `{name}`. Un échec du renommage est signalé sans
+relancer ni supprimer la copie. Aucun contact de la source n’est supprimé.
+
+Succès : `{operation:"copy_contacts_to_list",status:"accepted",source_list_id,
+source_list_name,list_id,list_name,matched_contacts,criteria_applied:{filter},
+warnings:[],note}`. Le nombre est celui de l’aperçu, pas un résultat définitif du
+job. Le serveur émet `tool.progress` avec `creates_list:true`, une carte `lists`
+portant l’ID de destination, et `assistant.changed`. Sans correspondance, il
+renvoie `status:"no_matches"` sans mutation. Sans ID exploitable après un
+succès API, il signale cette limite sans inventer de carte ni relancer le job.
+Une répétition de la même copie est refusée au sein de la requête SSE.
+
+La fonction figure aussi dans `discover_operations(group:"lists")` et est
+appelable par `run_operation` avec `params:{id:<source>}` et le payload de copie
+ci-dessus. Cette variante applique les mêmes validations. La copie d’un
+segment ne peut pas remplacer le ciblage approuvé par le formulaire du mode
+import ; elle est disponible en mode chat.
+
+Vérifications : le Swagger public `/swagger.json` a été lu sur l’API Magileads
+et confirme le chemin, les champs de sélection, les filtres imbriqués, les
+opérateurs et le retour `contact_list_id` (HTTP 201).
+`node --test src/contact-copy*.test.js` couvre les copies vers une liste
+existante/nouvelle, les filtres invalides, l’aperçu indisponible, les erreurs,
+le non-rejeu et les événements SSE. Aucun job n’a été lancé sur un compte réel.
+Le script `node --env-file=.env examples/contact-copy-model-smoke.mjs` exerce le
+fournisseur réel sur des listes entièrement fictives ; `COPY_TEST_MODEL` permet
+de choisir son modèle.
+La vérification avec `deepseek/deepseek-v4-pro` a confirmé l’attente du choix de
+destination, la copie vers une nouvelle liste nommée, la copie vers une liste
+existante par ID et l’absence de copie pour une simple demande de comptage.
+Les deux copies de test transmettaient le filtre complet `Civilité = Monsieur`
+pour les 16 contacts fictifs ; aucun appel aux données clients n’a été envoyé.
 
 ## Contrat SSE
 
@@ -313,9 +391,10 @@ Pour OpenAI, ajouter la clé dans **Magileads → Paramètres → Intégrations*
 
 La liste détaillée ci-dessous est issue du registre exécuté par le serveur.
 
-### lists (19)
+### lists (20)
 
 - duplicate_contact_list — POST /contact-lists/:id/copy
+- copy_contacts_to_list — POST /contact-lists/:id/copy (contacts_selection + destination optionnelle)
 - enrich_dropcontact — POST /contact-lists/:id/enrich/external/dropcontact/:key_id
 - create_contact_list — POST /contact-lists
 - update_contact_list — PUT /contact-lists/:id

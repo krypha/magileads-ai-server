@@ -22,7 +22,7 @@ import { cardsForTool, changesData } from './cards.js';
 
 import http from "node:http";
 import { getMe, listOpenAiIntegrations } from "./magileads.js";
-import { AI_TOOLS, TOOL_LABELS, CREATES_LIST, executeTool } from "./tools.js";
+import { AI_TOOLS, TOOL_LABELS, CREATES_LIST, createsListForTool, executeTool } from "./tools.js";
 import { buildSystemPrompt } from "./prompt.js";
 import { MODEL_PROVIDERS, readModelStream, resolveIncludedModel, resolveModels, upstreamRequest } from './model-providers.js';
 import { approvedRunTool, approvedToolArgs, parseImportApproval } from './import-approval.js';
@@ -63,6 +63,8 @@ const IMPORT_READ_TOOLS = new Set([
 const IMPORT_ONLY_TOOLS = new Set([
   'update_targeting', 'count_database_targeting', 'run_database_targeting', 'run_sales_navigator_targeting',
 ]);
+// Copying an existing segment is not a source extraction approved by import UI.
+const IMPORT_RUN_TOOLS = new Set(CREATES_LIST.filter(name => name.startsWith('run_')));
 
 function explicitImportApproval(messages, submitted) {
   const users = messages.filter(message => message.role === 'user');
@@ -350,6 +352,7 @@ async function handleChat(req, res, cors) {
   let failed = false;
   let launchAttempted = false;
   let targetingReady = false;
+  const toolContext = { profile, enforceUsageLimits, copyAttempts: new Set() };
 
   /** Ouvre le flux upstream, en basculant sur le candidat suivant si besoin. */
   async function openUpstream(round, scopeCheck = false, finalAnswer = false) {
@@ -361,7 +364,7 @@ async function handleChat(req, res, cors) {
         const availableTools = scopeCheck ? [SCOPE_TOOL] : !importMode
           ? AI_TOOLS.filter(tool => !IMPORT_ONLY_TOOLS.has(tool.function.name))
           : AI_TOOLS.filter(tool => IMPORT_READ_TOOLS.has(tool.function.name) ||
-            (approval && targetingReady && !launchAttempted && CREATES_LIST.includes(tool.function.name) &&
+            (approval && targetingReady && !launchAttempted && IMPORT_RUN_TOOLS.has(tool.function.name) &&
               (!approvedRunTool(approval) || tool.function.name === approvedRunTool(approval))));
         const toolChoice = scopeCheck ? { type: 'function', function: { name: SCOPE_TOOL.function.name } } : finalAnswer ? 'none' : importMode && round === 0
           ? { type: 'function', function: { name: 'update_targeting' } }
@@ -492,10 +495,10 @@ async function handleChat(req, res, cors) {
         if (closed) break;
         const limitError = workload?.check(c.name, c.args);
         if (limitError) { fail(limitError); break chatRounds; }
-        const createsList = CREATES_LIST.includes(c.name);
+        const createsList = createsListForTool(c.name, c.args);
         let result;
         const permitted = !importMode ? !IMPORT_ONLY_TOOLS.has(c.name)
-          : IMPORT_READ_TOOLS.has(c.name) || (approval && targetingReady && createsList && !launchAttempted &&
+          : IMPORT_READ_TOOLS.has(c.name) || (approval && targetingReady && IMPORT_RUN_TOOLS.has(c.name) && !launchAttempted &&
             (!approvedRunTool(approval) || c.name === approvedRunTool(approval)));
         if (!permitted) {
           result = JSON.stringify({ error: createsList
@@ -512,7 +515,7 @@ async function handleChat(req, res, cors) {
               tool: c.name, label: TOOL_LABELS[c.name] || c.name.replace(/_/g, ' '),
               status: 'running', creates_list: createsList,
             });
-            result = await executeTool(c.name, args, auth, { profile, enforceUsageLimits });
+            result = await executeTool(c.name, args, auth, toolContext);
             let launched = false;
             try { launched = Boolean(JSON.parse(result).list_id); } catch { /* tool returned an error */ }
             if (c.name !== 'update_targeting') sendEvent('tool.progress', {

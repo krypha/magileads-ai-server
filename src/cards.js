@@ -4,6 +4,7 @@ export function changesData(name, raw, argsRaw = '{}') {
   try {
     const result = JSON.parse(raw), args = JSON.parse(argsRaw);
     if (result.error) return false;
+    if (name === 'copy_contacts_to_list') return result.status === 'accepted';
     if (name === 'run_operation') return result.status === 'accepted' && OPERATIONS.some(op => op.name === args.operation && op.method !== 'GET');
     return ['run_linkedin_targeting', 'run_google_maps_targeting', 'run_sales_navigator_targeting', 'run_database_targeting'].includes(name) && Boolean(result.list_id);
   } catch { return false; }
@@ -12,6 +13,9 @@ export function cardsForTool(name, raw, argsRaw = '{}') {
   let result, args;
   try { result = JSON.parse(raw); args = JSON.parse(argsRaw); } catch { return []; }
   if (!result || result.error || result._truncated) return [];
+  if ((name === 'copy_contacts_to_list' || name === 'run_operation' && args.operation === 'copy_contacts_to_list') && result.status === 'accepted' && result.list_id) {
+    return [{ kind: 'lists', items: [{ id: result.list_id, name: result.list_name ?? `#${result.list_id}` }] }];
+  }
   if (name === 'create_document' && result.status === 'document_ready') return [{ kind: 'document', document: result.document }];
   if (name === 'connect_email') return [{ kind: 'email' }];
   if (name === 'open_commercial_form') return [{ kind: 'form', form: result.form }];
