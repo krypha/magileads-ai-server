@@ -14,12 +14,18 @@ Le serveur conserve les outils de lecture/ciblage existants et ajoute un catalog
 serveur IA avec une date future ISO UTC (voir README.md). Jusqu’à cette date,
 aucun `max_tokens` n’est envoyé, les messages et l’historique ne sont pas
 tronqués, et les plafonds de prompt, coût, prix, campagnes, outils et requêtes
-par minute sont désactivés. La clé OpenRouter de plateforme est utilisée en
+par minute sont désactivés, ainsi que la limite de six tours d’outils et le délai
+de 120 secondes par appel modèle. L’analyse continue jusqu’à sa réponse finale
+ou l’arrêt de l’utilisateur. La clé OpenRouter de plateforme est utilisée en
 priorité, sans précontrôle de plafond quotidien ; les quotas du fournisseur
 restent applicables. Le périmètre Magileads, l’authentification, les validations
 d’import et la politique de suppression restent actifs. L’absence ou
 l’expiration de la variable rétablit le comportement ci-dessous pour chaque
 nouvelle requête. `GET /ai/meta` expose `usageLimitsEnabled` pour le vérifier.
+Il expose aussi `executionLimits` avec `maxToolRounds:null` et
+`modelCallTimeoutMs:null` pendant les tests. Un commentaire SSE est envoyé toutes
+les 15 secondes pendant l’attente. Hors tests, la limite de six tours déclenche
+un dernier appel sans outils pour restituer les résultats et les manques.
 
 Tous les comptes, y compris les administrateurs et les clés OpenAI personnelles,
 passent par une classification sémantique Magileads avant les outils métier.
@@ -86,7 +92,16 @@ simulées ; aucun audit massif ni import réel n’a été lancé pour ce chanti
 
 ## Contrat SSE
 
-Les deltas de texte et linkedin.accounts existants sont conservés. Nouveaux événements :
+Les deltas de texte et linkedin.accounts existants sont conservés.
+
+Les commentaires `: connected` puis `: keep-alive` toutes les 15 secondes ne
+constituent pas des événements et ne s’affichent pas. Le marqueur `data: [DONE]`
+indique la fin normale. Le front v5 conserve le texte et affiche une interruption
+si la connexion se ferme sans ce marqueur, ou si le serveur émet `stream_failed`.
+Il ne rejoue jamais automatiquement une réponse partielle, pour éviter de
+répéter une opération déjà effectuée.
+
+Événements :
 
 - `assistant.card` : union validée côté front, kind = email, lists, campaigns, leads, connections, result ou form.
 - `assistant.changed` : données à recharger après mutation.

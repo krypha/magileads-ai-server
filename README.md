@@ -89,7 +89,10 @@ AI_TEST_UNLIMITED_UNTIL=2026-09-30T20:59:59Z
 Pendant cette période, le serveur ne transmet aucun `max_tokens` au modèle
 (réponse comme contrôleur de périmètre), ne tronque ni les messages ni leur
 historique et suspend les limites de prompt, coût par requête, prix des providers,
-trois campagnes, douze outils et requêtes par minute. Le précontrôle de la clé
+trois campagnes, douze outils et requêtes par minute. La limite de six tours
+d’outils et le délai de 120 secondes par appel modèle sont également suspendus :
+le serveur continue jusqu’à la réponse finale ou l’arrêt par l’utilisateur.
+Le précontrôle de la clé
 journalière OpenRouter est suspendu ; l’IA incluse utilise en priorité
 `AI_API_KEY`, puis `AI_INCLUDED_API_KEY` si la clé de plateforme manque. Les
 budgets, quotas et fenêtres de contexte imposés par OpenRouter/OpenAI continuent
@@ -103,10 +106,12 @@ Pour arrêter les tests plus tôt, retirer la variable et redémarrer le serveur
 
 L’authentification, les clés propres au compte, le périmètre Magileads, la
 validation d’import, la politique de suppression et la suppression des secrets
-restent actifs. Les limites techniques restent également inchangées : requête
-HTTP de 1 Mo, six tours d’outils, délai de 120 secondes par appel modèle et
-résultats d’outils plafonnés. Les plafonds décrits ci-dessous s’appliquent hors
-de cette période de test.
+restent actifs. La requête HTTP reste plafonnée à 1 Mo et les résultats des outils
+restent plafonnés. Hors tests, après six tours d’outils, un dernier appel sans
+autorisation d’outils demande une synthèse factuelle, avec les informations
+manquantes si nécessaire, plutôt que fermer silencieusement le flux.
+`GET /ai/meta` expose aussi `executionLimits` : `maxToolRounds` et
+`modelCallTimeoutMs` valent `null` pendant les tests, sinon `6` et `120000`.
 
 ### Intégration OpenAI du compte
 
@@ -444,8 +449,11 @@ retiré lorsque le proxy Dokploy est utilisé.
 - **SSE derrière un proxy** : le serveur envoie déjà `X-Accel-Buffering: no` et
   `Cache-Control: no-transform`. Si la réponse arrive « d'un bloc », vérifier que
   le buffering est désactivé côté proxy.
-- **Timeout du proxy** : un audit peut dépasser 60 s. Porter le timeout de réponse
-  (Traefik/nginx) à ~180 s pour ne pas interrompre le flux.
+- **Sessions longues** : le serveur envoie un commentaire SSE toutes les 15 s
+  pendant les appels modèle et les outils. Le front ignore ces commentaires.
+  Ces signaux évitent les coupures pour inactivité ; un proxy ou un fournisseur
+  qui impose sa propre durée maximale doit être configuré séparément.
+  Le bouton Stop et la déconnexion du client annulent toujours l’appel modèle.
 - **Secrets** : `AI_API_KEY` reste côté serveur. Les clés OpenAI sont lues dans
   Magileads pour chaque appel et ne sont ni persistées ni journalisées par le
   serveur IA. Aucun volume de données n'est nécessaire.

@@ -84,6 +84,8 @@ test('temporary tests preserve long prompts and output, lift cost/workload caps,
     await Promise.race([once(child.stdout, 'data'), once(child, 'exit').then(() => { throw Error('server exited'); })]);
     const meta = await (await fetch(`http://127.0.0.1:${port}/ai/meta`)).json();
     assert.equal(meta.usageLimitsEnabled, false);
+    assert.equal(meta.executionLimits.maxToolRounds, null);
+    assert.equal(meta.executionLimits.modelCallTimeoutMs, null);
     const history = Array.from({ length: 62 }, (_, index) => ({
       role: index % 2 === 0 ? 'user' : 'assistant', content: `History-${index}: ${'é'.repeat(2000)}`,
     }));

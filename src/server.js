@@ -48,8 +48,9 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || "*")
 
 const MAX_MESSAGES = 50;
 const MAX_CONTENT = 16_000;
-const MAX_ROUNDS = 6; // tool round-trips before we stop looping
+const MAX_ROUNDS = 6; // normal-mode tool rounds, followed by a final synthesis
 const CALL_TIMEOUT_MS = 120_000;
+const HEARTBEAT_MS = 15_000;
 const MAX_BODY_BYTES = 1_000_000;
 const RATE_LIMIT_PER_MIN = Number(process.env.RATE_LIMIT_PER_MIN) || 20;
 const IMPORT_CONTEXT_PREFIX = '[Contexte : je suis sur la page de création de liste';
@@ -198,6 +199,8 @@ async function handleChat(req, res, cors) {
   if (!caller) return;
   const { auth, profile, accountId } = caller;
   const enforceUsageLimits = usageLimitsEnabled();
+  const maxRounds = enforceUsageLimits ? MAX_ROUNDS : Infinity;
+  const callTimeoutMs = enforceUsageLimits ? CALL_TIMEOUT_MS : 0;
 
   if (body.mode != null && body.mode !== 'chat' && body.mode !== 'import') {
     return json(res, 400, { ok: false, errorKey: 'invalid_mode' }, cors);
@@ -325,8 +328,15 @@ async function handleChat(req, res, cors) {
 
   const ac = new AbortController();
   let closed = false;
+  // Comments are ignored by SSE clients and keep idle proxy connections alive
+  // while the provider reasons or a Magileads tool is running.
+  res.write(': connected\n\n');
+  const heartbeat = setInterval(() => {
+    if (!closed) res.write(': keep-alive\n\n');
+  }, HEARTBEAT_MS);
   res.on("close", () => {
     closed = true;
+    clearInterval(heartbeat);
     ac.abort();
   });
 
@@ -340,10 +350,10 @@ async function handleChat(req, res, cors) {
   let targetingReady = false;
 
   /** Ouvre le flux upstream, en basculant sur le candidat suivant si besoin. */
-  async function openUpstream(round, scopeCheck = false) {
+  async function openUpstream(round, scopeCheck = false, finalAnswer = false) {
     while (modelIdx < candidates.length) {
       const model = candidates[modelIdx];
-      const timeout = setTimeout(() => ac.abort(), CALL_TIMEOUT_MS);
+      const timeout = callTimeoutMs > 0 ? setTimeout(() => ac.abort(), callTimeoutMs) : undefined;
       let upstream;
       try {
         const availableTools = scopeCheck ? [SCOPE_TOOL] : !importMode
@@ -351,7 +361,7 @@ async function handleChat(req, res, cors) {
           : AI_TOOLS.filter(tool => IMPORT_READ_TOOLS.has(tool.function.name) ||
             (approval && targetingReady && !launchAttempted && CREATES_LIST.includes(tool.function.name) &&
               (!approvedRunTool(approval) || tool.function.name === approvedRunTool(approval))));
-        const toolChoice = scopeCheck ? { type: 'function', function: { name: SCOPE_TOOL.function.name } } : importMode && round === 0
+        const toolChoice = scopeCheck ? { type: 'function', function: { name: SCOPE_TOOL.function.name } } : finalAnswer ? 'none' : importMode && round === 0
           ? { type: 'function', function: { name: 'update_targeting' } }
           : 'auto';
         const messages = scopeCheck ? scopeConversation(clientMessages) : convo;
@@ -420,8 +430,13 @@ async function handleChat(req, res, cors) {
     } else if (cappedIncluded && decision === 'broad_campaign_audit') {
       fail('request_too_broad');
     }
-    chatRounds: for (let round = 0; round < MAX_ROUNDS && !closed && !failed; round++) {
-      const opened = await openUpstream(round);
+    chatRounds: for (let round = 0; !closed && !failed; round++) {
+      const finalAnswer = round >= maxRounds;
+      if (finalAnswer) convo.push({ role: 'system', content:
+        'Termine maintenant par le résultat demandé à partir des données réellement obtenues. Aucun nouvel outil n’est autorisé. ' +
+        'Si l’analyse est incomplète, présente les résultats partiels et indique exactement les informations manquantes. ' +
+        'Ne prétends pas avoir terminé les croisements non calculés et n’annonce pas de nouvelle recherche.' });
+      const opened = await openUpstream(round, false, finalAnswer);
       if (opened.error) {
         if (!closed) {
           failed = true;
@@ -447,6 +462,11 @@ async function handleChat(req, res, cors) {
         produced = true;
         sendText(delta);
       });
+      // Enforce tool_choice=none ourselves if a provider ignores it.
+      if (finalAnswer && (calls.length || !assistantContent.trim())) {
+        fail('stream_failed');
+        break;
+      }
       if (importMode && round === 0 && !calls.some(call => call.name === 'update_targeting')) {
         failed = true;
         sendEvent('assistant.error', { code: 'targeting_update_missing' });
@@ -551,6 +571,7 @@ async function handleChat(req, res, cors) {
     if (!closed) sendEvent("assistant.error", { code: "stream_failed" });
     console.error("[ai] stream error:", err?.name || "Error");
   } finally {
+    clearInterval(heartbeat);
     if (!closed) res.end();
   }
 }
@@ -587,12 +608,15 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.method === "GET" && url.pathname === "/ai/meta") {
+    const limited = usageLimitsEnabled();
     return json(
       res,
       200,
       {
         ok: true,
-        usageLimitsEnabled: usageLimitsEnabled(),
+        usageLimitsEnabled: limited,
+        executionLimits: { maxToolRounds: limited ? MAX_ROUNDS : null,
+          modelCallTimeoutMs: limited ? CALL_TIMEOUT_MS : null, heartbeatMs: HEARTBEAT_MS },
         toolLabels: TOOL_LABELS,
         createsList: CREATES_LIST,
         // Paliers réellement disponibles (l'UI peut s'y adapter).
