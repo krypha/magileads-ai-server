@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { listProviderModels, readModelStream, upstreamRequest } from './model-providers.js';
+import { listProviderModels, readModelStream, supportsOpenAiAssistantModel, upstreamRequest } from './model-providers.js';
 
 test('provider catalog is fetched with its own key and returns model metadata only', async () => {
   const fixtures = {
@@ -22,6 +22,31 @@ test('provider catalog is fetched with its own key and returns model metadata on
     assert.equal(models.length, 1, provider);
     assert.ok(!JSON.stringify(models).includes('private-'));
   }
+});
+
+test('OpenAI catalog keeps chat models with tools and hides unrelated or Responses-only models', async () => {
+  const available = ['gpt-5.6-sol', 'gpt-5.6-terra-2026-07-28', 'gpt-5.4-mini', 'gpt-4.1-mini',
+    'text-embedding-3-small', 'gpt-5.4-pro', 'gpt-6-astra', 'gpt-image-2', 'whisper-1'];
+  const models = await listProviderModels('openai', 'private-key', async () => Response.json({
+    data: available.map(id => ({ id })),
+  }));
+  assert.deepEqual(models.map(item => item.id), available.slice(0, 4));
+  assert.equal(supportsOpenAiAssistantModel('gpt-5.6-sol'), true);
+  assert.equal(supportsOpenAiAssistantModel('gpt-5.4-pro'), false);
+});
+
+test('OpenAI GPT-5.6 tool requests disable reasoning and use current completion limit parameter', () => {
+  const request = upstreamRequest('openai', 'private-key', 'gpt-5.6-sol',
+    [{ role: 'user', content: 'Mes listes' }], undefined, { maxTokens: 2048 });
+  const body = JSON.parse(request.options.body);
+  assert.equal(body.reasoning_effort, 'none');
+  assert.equal(body.max_completion_tokens, 2048);
+  assert.equal(Object.hasOwn(body, 'max_tokens'), false);
+  assert.ok(!request.options.body.includes('private-key'));
+  const older = JSON.parse(upstreamRequest('openai', 'private-key', 'gpt-4.1-mini',
+    [{ role: 'user', content: 'Mes listes' }], undefined, { maxTokens: 2048 }).options.body);
+  assert.equal(Object.hasOwn(older, 'reasoning_effort'), false);
+  assert.equal(older.max_completion_tokens, 2048);
 });
 
 test('Claude uses native Messages tool calls and text stream', async () => {

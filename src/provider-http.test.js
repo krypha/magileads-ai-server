@@ -8,6 +8,8 @@ import { sendScopeFixture } from '../test/scope-fixture.mjs';
 test('OpenAI selects only a named integration owned by the active account, without local key routes', { timeout: 20000 }, async () => {
   let activeKey = 'sk-account-one-current';
   let expectedKey = 'sk-account-one-old';
+  let expectedModel = 'gpt-5.4-mini';
+  let rejectScope = false;
   let openaiCalls = 0;
   let providerError;
   const upstream = http.createServer(async (req, res) => {
@@ -28,14 +30,22 @@ test('OpenAI selects only a named integration owned by the active account, witho
     try {
       if (req.url === '/models') {
         assert.equal(req.headers.authorization, `Bearer ${expectedKey}`);
-        return res.end(JSON.stringify({ data: [{ id: 'gpt-5.4-mini', name: 'GPT 5.4 mini' }, { id: 'text-embedding-3-small' }] }));
+        return res.end(JSON.stringify({ data: [{ id: 'gpt-5.4-mini', name: 'GPT 5.4 mini' },
+          { id: 'gpt-5.6-sol', name: 'GPT 5.6 Sol' }, { id: 'gpt-5.4-pro' }, { id: 'text-embedding-3-small' }] }));
       }
       if (req.url === '/chat/completions') {
         assert.equal(req.headers.authorization, `Bearer ${expectedKey}`);
         assert.ok(!raw.includes(expectedKey));
         assert.ok(!raw.includes('dropcontact-secret'));
-        assert.equal(JSON.parse(raw).model, 'gpt-5.4-mini');
-        if (sendScopeFixture(JSON.parse(raw), res)) return;
+        const body = JSON.parse(raw);
+        assert.equal(body.model, expectedModel);
+        assert.equal(body.reasoning_effort, 'none');
+        assert.equal(Object.hasOwn(body, 'max_tokens'), false);
+        if (body.tool_choice?.function?.name === 'classify_magileads_request') {
+          assert.equal(body.max_completion_tokens, 2048);
+          if (rejectScope) { res.writeHead(400); return res.end(JSON.stringify({ error: { code: 'unsupported_parameter' } })); }
+        }
+        if (sendScopeFixture(body, res)) return;
         openaiCalls++;
         res.writeHead(200, { 'Content-Type': 'text/event-stream' });
         return res.end('data: {"choices":[{"delta":{"content":"OpenAI works"}}]}\n\ndata: [DONE]\n\n');
@@ -73,7 +83,8 @@ test('OpenAI selects only a named integration owned by the active account, witho
     assert.deepEqual(second.openai_keys, []);
     assert.equal((await call('account-two', '/ai/models?provider=openai&key_id=11')).status, 412);
     const models = await (await call('account-one', '/ai/models?provider=openai&key_id=11')).json();
-    assert.deepEqual(models.models, [{ id: 'gpt-5.4-mini', name: 'GPT 5.4 mini' }]);
+    assert.deepEqual(models.models, [{ id: 'gpt-5.4-mini', name: 'GPT 5.4 mini' },
+      { id: 'gpt-5.6-sol', name: 'GPT 5.6 Sol' }]);
     assert.ok(!JSON.stringify(models).includes('sk-account-one'));
 
     const message = [{ role: 'user', content: 'Mes listes' }];
@@ -93,6 +104,15 @@ test('OpenAI selects only a named integration owned by the active account, witho
     const selectedModelChat = await call('account-one', '/ai/chat', 'POST', { ...base, openai_key_id: 11, model: 'gpt-5.4-mini' });
     assert.equal(selectedModelChat.status, 200);
     assert.match(await selectedModelChat.text(), /OpenAI works/);
+    expectedModel = 'gpt-5.6-sol';
+    const solChat = await call('account-one', '/ai/chat', 'POST', { ...base, openai_key_id: 11, model: expectedModel });
+    assert.equal(solChat.status, 200);
+    assert.match(await solChat.text(), /OpenAI works/);
+    rejectScope = true;
+    const rejected = await call('account-one', '/ai/chat', 'POST', { ...base, openai_key_id: 11, model: expectedModel });
+    assert.match(await rejected.text(), /"code":"provider_request_rejected"/);
+    rejectScope = false;
+    expectedModel = 'gpt-5.4-mini';
     expectedKey = activeKey;
     const otherKey = await call('account-one', '/ai/chat', 'POST', { ...base, openai_key_id: 12 });
     assert.equal(otherKey.status, 200);
@@ -106,7 +126,7 @@ test('OpenAI selects only a named integration owned by the active account, witho
     const single = await call('account-three', '/ai/chat', 'POST', base);
     assert.equal(single.status, 200);
     assert.match(await single.text(), /OpenAI works/);
-    assert.equal(openaiCalls, 5);
+    assert.equal(openaiCalls, 6);
     if (providerError) throw providerError;
   } finally {
     child.kill();

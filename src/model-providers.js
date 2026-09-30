@@ -20,6 +20,20 @@ export function selectedModel(provider, value) {
   return valid ? model : null;
 }
 
+// /models reports access, not Chat Completions or function-call support. Keep
+// only documented chat/tool families; the list of actual IDs still comes from
+// the account's provider key, including its available dated snapshots.
+const OPENAI_ASSISTANT_MODEL = /^(?:gpt-5(?:\.\d+)?(?:-(?:sol|terra|luna|mini|nano))?|gpt-4(?:o(?:-mini)?|\.1(?:-mini|-nano)?)|o(?:3(?:-mini)?|4-mini))(?:-\d{4}-\d{2}-\d{2})?$/i;
+
+export function supportsOpenAiAssistantModel(model) {
+  return OPENAI_ASSISTANT_MODEL.test(model);
+}
+
+function openAiNeedsNoReasoning(model) {
+  const version = /^gpt-5\.(\d+)(?:-|$)/i.exec(model);
+  return version && Number(version[1]) >= 4;
+}
+
 /** Provider-owned catalog; credentials are used in memory and never returned. */
 export async function listProviderModels(provider, apiKey, fetcher = fetch) {
   if (!MODEL_PROVIDERS.includes(provider) || !apiKey) throw new Error('invalid_provider');
@@ -40,10 +54,7 @@ export async function listProviderModels(provider, apiKey, fetcher = fetch) {
     for (const item of items) {
       const id = provider === 'gemini' ? String(item?.name || '').replace(/^models\//, '') : item?.id;
       if (!selectedModel(provider, id)) continue;
-      // OpenAI's Models endpoint includes embeddings, speech and image models,
-      // but does not expose a chat/tool capability flag. Exclude those known
-      // non-chat families without hard-coding an allowlist of chat model IDs.
-      if (provider === 'openai' && /embedding|whisper|transcri|moderation|dall-e|image|realtime|tts|speech|babbage|davinci/i.test(id)) continue;
+      if (provider === 'openai' && !supportsOpenAiAssistantModel(id)) continue;
       if (provider === 'gemini' && !item.supportedGenerationMethods?.includes('generateContent')) continue;
       if (provider === 'openrouter' && Array.isArray(item.supported_parameters) && !item.supported_parameters.includes('tools')) continue;
       if (provider === 'deepseek' && Array.isArray(item.output_modalities) && !item.output_modalities.includes('text')) continue;
@@ -122,7 +133,8 @@ export function upstreamRequest(provider, apiKey, model, conversation, signal, {
       method: 'POST',
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ model, messages: conversation, tools, tool_choice: toolChoice, stream: true,
-        ...(maxTokens ? { max_tokens: maxTokens } : {}),
+        ...(provider === 'openai' && openAiNeedsNoReasoning(model) ? { reasoning_effort: 'none' } : {}),
+        ...(maxTokens ? provider === 'openai' ? { max_completion_tokens: maxTokens } : { max_tokens: maxTokens } : {}),
         ...(provider === 'openrouter' && maxPrice ? { provider: { max_price: maxPrice, require_parameters: true } } : {}),
         ...(provider === 'openrouter' && disableReasoning ? { reasoning: { effort: 'none' } } : {}) }),
       signal,

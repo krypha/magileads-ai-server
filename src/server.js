@@ -441,7 +441,8 @@ async function handleChat(req, res, cors) {
     }
     if (checked.error || !decision) {
       fail(checked.error === 'request_budget_exceeded' ? checked.error
-        : provider !== 'openrouter' && [401, 403].includes(checked.status) ? 'provider_key_invalid' : 'scope_check_unavailable');
+        : provider !== 'openrouter' && [401, 403].includes(checked.status) ? 'provider_key_invalid'
+          : provider === 'openai' && checked.status === 400 ? 'provider_request_rejected' : 'scope_check_unavailable');
     } else if (decision === 'off_topic') {
       fail('off_topic');
     } else if (cappedIncluded && decision === 'broad_campaign_audit') {
