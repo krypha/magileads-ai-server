@@ -877,7 +877,9 @@ export async function executeTool(name, argsRaw, auth, context = {}) {
         const usable = (r.data.linkedin_accounts_list ?? [])
           .filter((a) => a.is_valid === true && a.checkpoint_required !== true &&
             (!salesOnly || a.is_sales_navigator_account === true))
-          .map((a) => ({ id: a.id, name: a.name || a.username || `#${a.id}`, username: a.username }));
+          // `sales_navigator` so the import form can run a LinkedIn target
+          // through Sales Navigator when that is the account the user picked.
+          .map((a) => ({ id: a.id, name: a.name || a.username || `#${a.id}`, username: a.username, sales_navigator: a.is_sales_navigator_account === true }));
         if (!usable.length) {
           return cap({
             accounts: [],

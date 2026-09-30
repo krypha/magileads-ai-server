@@ -118,6 +118,9 @@ test('import mode streams criteria, refuses extraction before approval, then lau
     assert.match(existing, /"kind":"lists","items":\[\{"id":42,"name":"Liste existante"\}\]/);
     // With it, the model is told to launch — not sent back to the form.
     assert.match(lastSystem, /vient de confirmer la cible/);
+    // …and names the one tool the approval unlocks, so a LinkedIn target
+    // confirmed with a Sales Navigator account is not run as a plain search.
+    assert.match(lastSystem, /run_google_maps_targeting/);
     assert.doesNotMatch(lastSystem, /ne lance rien/);
     assert.equal(generators, 2);
     assert.equal(extracts, 2);
