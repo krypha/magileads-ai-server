@@ -52,7 +52,9 @@ const MAX_CONTENT = 16_000;
 const MAX_ROUNDS = 6; // normal-mode tool rounds, followed by a final synthesis
 const CALL_TIMEOUT_MS = 120_000;
 const HEARTBEAT_MS = 15_000;
-const MAX_BODY_BYTES = 1_000_000;
+// Transport safeguard, not a model/context budget. Large personal-key
+// histories must pass through intact; authenticate before buffering them.
+const MAX_BODY_BYTES = 8_000_000;
 const RATE_LIMIT_PER_MIN = Number(process.env.RATE_LIMIT_PER_MIN) || 20;
 const IMPORT_CONTEXT_PREFIX = '[Contexte : je suis sur la page de création de liste';
 const IMPORT_READ_TOOLS = new Set([
@@ -190,6 +192,10 @@ function rateLimited(key) {
 /* ------------------------------ the SSE chat ------------------------------ */
 
 async function handleChat(req, res, cors) {
+  // Authenticate before buffering a potentially large conversation.
+  const caller = await authenticate(req, res, cors);
+  if (!caller) return;
+  const { auth, profile, accountId } = caller;
   let body;
   try {
     body = await readBody(req);
@@ -197,18 +203,25 @@ async function handleChat(req, res, cors) {
     return json(res, 413, { ok: false, errorKey: "payload_too_large" }, cors);
   }
 
-  // Never trust an account id supplied by the browser: the provider key is
-  // selected using the authoritative identity returned by Magileads.
-  const caller = await authenticate(req, res, cors);
-  if (!caller) return;
-  const { auth, profile, accountId } = caller;
-  const enforceUsageLimits = usageLimitsEnabled();
-  const maxRounds = enforceUsageLimits ? MAX_ROUNDS : Infinity;
-  const callTimeoutMs = enforceUsageLimits ? CALL_TIMEOUT_MS : 0;
-
   if (body.mode != null && body.mode !== 'chat' && body.mode !== 'import') {
     return json(res, 400, { ok: false, errorKey: 'invalid_mode' }, cors);
   }
+
+  const provider = body.provider ?? 'openrouter';
+  if (!MODEL_PROVIDERS.includes(provider)) {
+    return json(res, 400, { ok: false, errorKey: 'invalid_provider' }, cors);
+  }
+  const selectedId = body.provider_key_id ?? body.openai_key_id ?? null;
+  if (selectedId !== null && (!Number.isSafeInteger(selectedId) || selectedId <= 0)) {
+    return json(res, 400, { ok: false, errorKey: provider === 'openai' ? 'invalid_openai_key_id' : 'invalid_provider_key_id' }, cors);
+  }
+  // A personal integration pays its own provider and is not subject to the
+  // shared MagIA usage or topic policy. Ownership is verified below before any
+  // provider call; account auth and mutation confirmations remain mandatory.
+  const personalKey = provider !== 'openrouter' || selectedId !== null;
+  const enforceUsageLimits = usageLimitsEnabled() && !personalKey;
+  const maxRounds = enforceUsageLimits ? MAX_ROUNDS : Infinity;
+  const callTimeoutMs = enforceUsageLimits ? CALL_TIMEOUT_MS : 0;
 
   if (enforceUsageLimits && rateLimited(String(accountId))) {
     return json(res, 429, { ok: false, errorKey: "rate_limited" }, cors);
@@ -241,19 +254,11 @@ async function handleChat(req, res, cors) {
   }
 
   // The user-facing tier maps to real model(s) HERE.
-  const provider = body.provider ?? 'openrouter';
-  if (!MODEL_PROVIDERS.includes(provider)) {
-    return json(res, 400, { ok: false, errorKey: 'invalid_provider' }, cors);
-  }
   // A regular user cannot bypass the included tier with a forged client body.
   const tier = profile.level === 'user' ? 'simple'
     : ["free", "simple", "complex", "custom"].includes(body.tier) ? body.tier : "simple";
   if (provider !== 'openrouter' && tier === 'free') {
     return json(res, 400, { ok: false, errorKey: 'paid_provider_has_no_free_tier' }, cors);
-  }
-  const selectedId = body.provider_key_id ?? body.openai_key_id ?? null;
-  if (selectedId !== null && (!Number.isSafeInteger(selectedId) || selectedId <= 0)) {
-    return json(res, 400, { ok: false, errorKey: provider === 'openai' ? 'invalid_openai_key_id' : 'invalid_provider_key_id' }, cors);
   }
   const included = profile.level === 'user' && provider === 'openrouter' && selectedId === null;
   const cappedIncluded = included && enforceUsageLimits;
@@ -264,6 +269,7 @@ async function handleChat(req, res, cors) {
   let candidateKeys = null;
   let candidateTiers = null;
   let budgetFallback = false;
+  let anthropicMaxTokens = null;
   if (included) {
     // Tests use the platform key instead of requiring the dedicated capped key.
     // OpenRouter still enforces limits configured on the selected key itself.
@@ -299,7 +305,9 @@ async function handleChat(req, res, cors) {
       if (!model) return json(res, 400, { ok: false, errorKey: 'invalid_custom_model' }, cors);
       try {
         const catalog = await listProviderModels(provider, providerKey);
-        if (!catalog.some(item => item.id === model)) return json(res, 400, { ok: false, errorKey: 'model_not_available' }, cors);
+        const available = catalog.find(item => item.id === model);
+        if (!available) return json(res, 400, { ok: false, errorKey: 'model_not_available' }, cors);
+        if (provider === 'anthropic') anthropicMaxTokens = available.maxTokens ?? null;
       } catch (error) {
         return json(res, 502, { ok: false, errorKey: error.message === 'provider_key_invalid' ? 'provider_key_invalid' : 'provider_models_unavailable' }, cors);
       }
@@ -316,7 +324,7 @@ async function handleChat(req, res, cors) {
   }
 
   const pageContext = /^\[(?:Screen context, not written by the user and not to be quoted|Screen context from the app, not written by the user)\]/.test(clientMessages.at(-1).content);
-  const convo = [{ role: "system", content: buildSystemPrompt(profile, { mode: importMode ? 'import' : 'chat', pageContext }) },
+  const convo = [{ role: "system", content: buildSystemPrompt(profile, { mode: importMode ? 'import' : 'chat', pageContext, personalKey }) },
     // The import UI's own confirmation. Without it, a typed "go" launches
     // nothing and the model points at the form; with it — the form's final
     // click, carried as `import_approval` — that same line told the model to
@@ -384,7 +392,8 @@ async function handleChat(req, res, cors) {
         const messages = scopeCheck ? scopeConversation(clientMessages) : convo;
         const scopeOptions = scopeRequestOptions(provider, model);
         const maxTokens = enforceUsageLimits
-          ? scopeCheck ? scopeOptions.maxTokens : included ? 2_048 : undefined : undefined;
+          ? scopeCheck ? scopeOptions.maxTokens : included ? 2_048 : undefined
+          : provider === 'anthropic' ? anthropicMaxTokens : undefined;
         const maxPrice = cappedIncluded ? candidateTiers[modelIdx] === 'free' ? FREE_MAX_PRICE : INCLUDED_MAX_PRICE : undefined;
         if (requestBudget?.exhausted) {
           clearTimeout(timeout);
@@ -432,21 +441,21 @@ async function handleChat(req, res, cors) {
   }
 
   try {
-    // Every account/provider goes through the same semantic scope gate. Its
-    // only tool is a classifier: it cannot read or modify Magileads data.
-    const checked = await openUpstream(0, true);
-    let decision = null;
-    if (!checked.error) {
-      try { decision = scopeDecision((await readOpened(checked, () => {})).calls); } catch { /* Fail closed. */ }
-    }
-    if (checked.error || !decision) {
-      fail(checked.error === 'request_budget_exceeded' ? checked.error
-        : provider !== 'openrouter' && [401, 403].includes(checked.status) ? 'provider_key_invalid'
-          : provider === 'openai' && checked.status === 400 ? 'provider_request_rejected' : 'scope_check_unavailable');
-    } else if (decision === 'off_topic') {
-      fail('off_topic');
-    } else if (cappedIncluded && decision === 'broad_campaign_audit') {
-      fail('request_too_broad');
+    // MagIA alone needs the shared-credit topic gate. A personal key can ask
+    // anything, including questions unrelated to Magileads.
+    if (!personalKey) {
+      const checked = await openUpstream(0, true);
+      let decision = null;
+      if (!checked.error) {
+        try { decision = scopeDecision((await readOpened(checked, () => {})).calls); } catch { /* Fail closed. */ }
+      }
+      if (checked.error || !decision) {
+        fail(checked.error === 'request_budget_exceeded' ? checked.error : 'scope_check_unavailable');
+      } else if (decision === 'off_topic') {
+        fail('off_topic');
+      } else if (cappedIncluded && decision === 'broad_campaign_audit') {
+        fail('request_too_broad');
+      }
     }
     chatRounds: for (let round = 0; !closed && !failed; round++) {
       const finalAnswer = round >= maxRounds;
@@ -461,6 +470,7 @@ async function handleChat(req, res, cors) {
           sendEvent('assistant.error', {
             code: opened.error === 'request_budget_exceeded' ? opened.error : provider !== 'openrouter' && [401, 403].includes(opened.status)
               ? 'provider_key_invalid'
+              : provider === 'openai' && opened.status === 400 ? 'provider_request_rejected'
               : 'provider_unavailable',
           });
         }

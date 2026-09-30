@@ -177,6 +177,8 @@ restent applicables. Le périmètre Magileads, l’authentification, les validat
 d’import et la politique de suppression restent actifs. L’absence ou
 l’expiration de la variable rétablit le comportement ci-dessous pour chaque
 nouvelle requête. `GET /ai/meta` expose `usageLimitsEnabled` pour le vérifier.
+Ce champ décrit la configuration de MagIA ; les clés personnelles restent sans
+plafond d’usage applicatif même lorsqu’il vaut `true`.
 Il expose aussi `executionLimits` avec `maxToolRounds:null` et
 `modelCallTimeoutMs:null` pendant les tests. Un commentaire SSE est envoyé toutes
 les 15 secondes pendant l’attente. Hors tests, la limite de six tours déclenche
@@ -187,14 +189,18 @@ renvoyés par l’API. Les secrets et diagnostics exclus restent retirés.
 `executionLimits.toolResultTruncationEnabled` permet de vérifier ce réglage.
 La pagination et les tailles de pages de chaque outil ne sont pas modifiées.
 
-Tous les comptes, y compris les administrateurs et les clés OpenAI personnelles,
-passent par une classification sémantique Magileads avant les outils métier.
+MagIA (clé de plateforme, y compris pour les administrateurs) passe par une
+classification sémantique Magileads avant les outils métier.
 Le contrôleur reçoit les derniers tours pour comprendre les confirmations et le
 dernier message complet ; aucun outil de données ne lui est disponible.
 Les messages de prospection B2B sont autorisés, les questions indépendantes de
 culture générale sont refusées. La présence du nom Magileads ou du contexte
 import n’autorise pas une question hors sujet. Si le contrôle échoue, le serveur
-refuse de lancer l’assistant. Le prompt métier rappelle les mêmes règles.
+refuse de lancer MagIA. Le prompt métier rappelle les mêmes règles. Avec une
+clé personnelle OpenAI, Claude, Gemini, DeepSeek ou OpenRouter, ce contrôle et
+la consigne de refus hors sujet sont désactivés : toute question peut recevoir
+une réponse, sans appel de classification supplémentaire. L’accès aux données
+Magileads reste celui du compte authentifié.
 
 L’IA incluse (`level=user`, OpenRouter) dispose d’un budget estimé de 0,03 USD par
 requête, vérifié à chaque appel : contrôle initial, texte, outils et résultats
@@ -206,7 +212,12 @@ ni quota utilisateur persistant n’est ajouté. Le repli gratuit impose des pri
 nuls. Douze appels d’outils et trois campagnes en détail maximum sont permis.
 Un audit global demande une sélection de une à trois campagnes ou une clé
 OpenAI personnelle. Lister les campagnes et lire le reporting global restent
-possibles. Les clés personnelles lèvent ces plafonds, jamais le périmètre.
+possibles. Les clés personnelles lèvent aussi ce périmètre, les limites de
+messages, de durée, de tours d’outils et de troncature des résultats. Les
+quotas propres au fournisseur et la limite de taille du corps HTTP restent en
+vigueur ; les validations d’import et de suppression restent obligatoires.
+Claude exige `max_tokens` ; le serveur reprend le maximum annoncé par son
+catalogue de modèles quand celui-ci le fournit.
 
 Événements d’erreur ajoutés, avec le contrat existant :
 

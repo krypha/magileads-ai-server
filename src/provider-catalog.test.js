@@ -5,7 +5,7 @@ import { listProviderModels, readModelStream, supportsOpenAiAssistantModel, upst
 test('provider catalog is fetched with its own key and returns model metadata only', async () => {
   const fixtures = {
     openai: { data: [{ id: 'gpt-5.4-mini' }, { id: 'text-embedding-3-small' }] },
-    anthropic: { data: [{ id: 'claude-sonnet-5', display_name: 'Claude Sonnet 5' }], has_more: false },
+    anthropic: { data: [{ id: 'claude-sonnet-5', display_name: 'Claude Sonnet 5', max_tokens: 128000 }], has_more: false },
     gemini: { models: [{ name: 'models/gemini-3-flash', displayName: 'Gemini 3 Flash', supportedGenerationMethods: ['generateContent'] },
       { name: 'models/text-embedding-004', supportedGenerationMethods: ['embedContent'] }] },
     deepseek: { data: [{ id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro', output_modalities: ['text'] }] },
@@ -20,6 +20,7 @@ test('provider catalog is fetched with its own key and returns model metadata on
       return new Response(JSON.stringify(payload));
     });
     assert.equal(models.length, 1, provider);
+    if (provider === 'anthropic') assert.equal(models[0].maxTokens, 128000);
     assert.ok(!JSON.stringify(models).includes('private-'));
   }
 });

@@ -5,7 +5,7 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { sendScopeFixture } from '../test/scope-fixture.mjs';
 
-test('scope and cost gates stop HTTP tool execution across paid, free and personal-key routes', { timeout: 20000 }, async () => {
+test('shared-key scope and cost gates block requests while personal keys bypass them', { timeout: 20000 }, async () => {
   let scenario = 'off_topic';
   let remaining = 1;
   let modelCalls = 0;
@@ -67,11 +67,11 @@ test('scope and cost gates stop HTTP tool execution across paid, free and person
   };
   try {
     await Promise.race([once(child.stdout, 'data'), once(child, 'exit').then(() => { throw Error('server exited'); })]);
-    for (const options of [{}, { provider: 'openai', openai_key_id: 1 }]) {
-      assert.match(await chat(options), /"code":"off_topic"/);
-      assert.equal(modelCalls, 0);
-      assert.deepEqual(apiCalls, []);
-    }
+    assert.match(await chat(), /"code":"off_topic"/);
+    assert.equal(modelCalls, 0);
+    assert.match(await chat({ provider: 'openai', openai_key_id: 1 }), /Réponse Magileads/);
+    assert.equal(modelCalls, 1);
+    assert.deepEqual(apiCalls, []);
     assert.match(await chat({}, 'admin'), /"code":"off_topic"/);
     remaining = 0;
     assert.match(await chat(), /"code":"off_topic"/);
@@ -80,17 +80,18 @@ test('scope and cost gates stop HTTP tool execution across paid, free and person
     remaining = 1;
     scenario = 'broad_campaign_audit';
     assert.match(await chat(), /"code":"request_too_broad"/);
-    assert.equal(modelCalls, 0);
+    assert.equal(modelCalls, 1);
     assert.deepEqual(apiCalls, []);
-    // A personal key lifts the shared budget/breadth cap, never the scope gate.
+    // A personal key bypasses both the shared budget and topic/breadth gate.
     assert.match(await chat({ provider: 'openai', openai_key_id: 1 }), /Réponse Magileads/);
+    assert.equal(modelCalls, 2);
     scenario = 'bad_scope';
     assert.match(await chat(), /"code":"scope_check_unavailable"/);
-    assert.equal(modelCalls, 1);
+    assert.equal(modelCalls, 2);
     scenario = 'cost';
     const expensive = await chat();
     assert.match(expensive, /"code":"request_budget_exceeded"/);
-    assert.equal(modelCalls, 2); // Growing tool results were never sent upstream.
+    assert.equal(modelCalls, 3); // Growing tool results were never sent upstream.
     assert.deepEqual(apiCalls, []);
     scenario = 'four_campaigns';
     const tooMany = await chat();

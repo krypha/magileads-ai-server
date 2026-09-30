@@ -26,7 +26,8 @@ test('personal Claude, Gemini, DeepSeek and OpenRouter keys work for a regular u
       if (req.url.startsWith('/models')) {
         const catalog = spec.provider === 'gemini'
           ? { models: [{ name: `models/${spec.model}`, supportedGenerationMethods: ['generateContent'] }] }
-          : { data: [{ id: spec.model, supported_parameters: ['tools'] }] };
+          : { data: [{ id: spec.model, supported_parameters: ['tools'],
+            ...(spec.provider === 'anthropic' ? { max_tokens: 128000 } : {}) }] };
         return res.end(JSON.stringify(catalog));
       }
       let raw = ''; for await (const chunk of req) raw += chunk;
@@ -34,6 +35,7 @@ test('personal Claude, Gemini, DeepSeek and OpenRouter keys work for a regular u
       assert.equal(body.model, spec.model);
       if (spec.provider === 'anthropic') {
         assert.equal(req.url, '/messages');
+        assert.equal(body.max_tokens, 128000);
         res.writeHead(200, { 'Content-Type': 'text/event-stream' });
         if (body.tools.length === 1 && body.tools[0].name === 'classify_magileads_request') {
           return res.end([

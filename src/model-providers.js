@@ -58,7 +58,13 @@ export async function listProviderModels(provider, apiKey, fetcher = fetch) {
       if (provider === 'gemini' && !item.supportedGenerationMethods?.includes('generateContent')) continue;
       if (provider === 'openrouter' && Array.isArray(item.supported_parameters) && !item.supported_parameters.includes('tools')) continue;
       if (provider === 'deepseek' && Array.isArray(item.output_modalities) && !item.output_modalities.includes('text')) continue;
-      collected.push({ id, name: String(item.display_name || item.name || id).slice(0, 120) });
+      const model = { id, name: String(item.display_name || item.name || id).slice(0, 120) };
+      // Claude requires max_tokens on every request. Its catalog advertises
+      // each model's ceiling, so a personal key need not inherit our 4096 default.
+      if (provider === 'anthropic' && Number.isSafeInteger(item.max_tokens) && item.max_tokens > 0) {
+        model.maxTokens = item.max_tokens;
+      }
+      collected.push(model);
     }
     cursor = provider === 'gemini' ? payload.nextPageToken : provider === 'anthropic' && payload.has_more ? payload.last_id : null;
     if (!cursor || collected.length >= 1000) break;

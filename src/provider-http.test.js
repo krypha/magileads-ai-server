@@ -41,9 +41,9 @@ test('OpenAI selects only a named integration owned by the active account, witho
         assert.equal(body.model, expectedModel);
         assert.equal(body.reasoning_effort, 'none');
         assert.equal(Object.hasOwn(body, 'max_tokens'), false);
+        if (rejectScope) { res.writeHead(400); return res.end(JSON.stringify({ error: { code: 'unsupported_parameter' } })); }
         if (body.tool_choice?.function?.name === 'classify_magileads_request') {
           assert.equal(body.max_completion_tokens, 2048);
-          if (rejectScope) { res.writeHead(400); return res.end(JSON.stringify({ error: { code: 'unsupported_parameter' } })); }
         }
         if (sendScopeFixture(body, res)) return;
         openaiCalls++;
