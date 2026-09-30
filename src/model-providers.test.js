@@ -27,7 +27,7 @@ test('included model prefers its override, inherits Simple and only defaults to 
   }
 });
 
-test('OpenAI uses its own models; Claude cannot be routed', () => {
+test('OpenAI legacy defaults remain, while personal providers require a selected catalog model', () => {
   assert.deepEqual(resolveModels('openai', 'free'), []);
   assert.deepEqual(resolveModels('openai', 'simple'), [process.env.OPENAI_MODEL || 'gpt-5.4-mini']);
   assert.deepEqual(resolveModels('openai', 'custom', 'gpt-5.4-mini'), ['gpt-5.4-mini']);
@@ -81,4 +81,23 @@ test('OpenRouter usage-only final frames are captured and price ceilings stay ou
   assert.equal(router.provider.require_parameters, true);
   assert.equal(router.reasoning.effort, 'none');
   assert.equal(JSON.parse(upstreamRequest('openai', 'key', 'model', [], undefined, options).options.body).provider, undefined);
+});
+
+test('DeepSeek reasoning is kept for tool continuation but not shown as answer text', async () => {
+  const stream = new Response([
+    'data: {"choices":[{"delta":{"reasoning_content":"private thought "}}]}',
+    'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-1","function":{"name":"list_contact_lists","arguments":"{}"}}]}}]}',
+    'data: [DONE]',
+  ].join('\n\n') + '\n\n').body;
+  const visible = [];
+  const result = await readModelStream(stream, text => visible.push(text), 'deepseek');
+  assert.deepEqual(visible, []);
+  assert.equal(result.reasoningContent, 'private thought ');
+  const continuation = JSON.parse(upstreamRequest('deepseek', 'private-key', 'deepseek-v4-pro', [
+    { role: 'assistant', content: null, reasoning_content: result.reasoningContent,
+      tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'list_contact_lists', arguments: '{}' } }] },
+    { role: 'tool', tool_call_id: 'call-1', content: '{}' },
+  ]).options.body);
+  assert.equal(continuation.messages[0].reasoning_content, 'private thought ');
+  assert.ok(!JSON.stringify(continuation).includes('private-key'));
 });

@@ -26,6 +26,10 @@ test('OpenAI selects only a named integration owned by the active account, witho
     }
     let raw = ''; for await (const chunk of req) raw += chunk;
     try {
+      if (req.url === '/models') {
+        assert.equal(req.headers.authorization, `Bearer ${expectedKey}`);
+        return res.end(JSON.stringify({ data: [{ id: 'gpt-5.4-mini', name: 'GPT 5.4 mini' }, { id: 'text-embedding-3-small' }] }));
+      }
       if (req.url === '/chat/completions') {
         assert.equal(req.headers.authorization, `Bearer ${expectedKey}`);
         assert.ok(!raw.includes(expectedKey));
@@ -61,16 +65,20 @@ test('OpenAI selects only a named integration owned by the active account, witho
   try {
     await Promise.race([once(child.stdout, 'data'), once(child, 'exit').then(() => { throw new Error('server exited'); })]);
     const first = await (await call('account-one', '/ai/providers')).json();
-    assert.deepEqual(first.configured, { openai: true, anthropic: false });
+    assert.deepEqual(first.configured, { openai: true, anthropic: false, gemini: false, deepseek: false });
     assert.deepEqual(first.openai_keys, [{ id: 12, name: 'Support' }, { id: 11, name: 'Marketing' }]);
     assert.ok(!JSON.stringify(first).includes('sk-account-one'));
     const second = await (await call('account-two', '/ai/providers')).json();
-    assert.deepEqual(second.configured, { openai: false, anthropic: false });
+    assert.deepEqual(second.configured, { openai: false, anthropic: false, gemini: false, deepseek: false });
     assert.deepEqual(second.openai_keys, []);
+    assert.equal((await call('account-two', '/ai/models?provider=openai&key_id=11')).status, 412);
+    const models = await (await call('account-one', '/ai/models?provider=openai&key_id=11')).json();
+    assert.deepEqual(models.models, [{ id: 'gpt-5.4-mini', name: 'GPT 5.4 mini' }]);
+    assert.ok(!JSON.stringify(models).includes('sk-account-one'));
 
     const message = [{ role: 'user', content: 'Mes listes' }];
     assert.equal((await call('account-two', '/ai/chat', 'POST', { provider: 'openai', tier: 'simple', messages: message })).status, 412);
-    assert.equal((await call('account-one', '/ai/chat', 'POST', { provider: 'anthropic', tier: 'simple', messages: message })).status, 400);
+    assert.equal((await call('account-one', '/ai/chat', 'POST', { provider: 'anthropic', tier: 'simple', messages: message })).status, 412);
     assert.equal((await call('account-one', '/ai/chat', 'POST', { provider: 'openai', tier: 'free', messages: message })).status, 400);
     assert.equal((await call('account-one', '/ai/provider-keys/openai', 'PUT', { api_key: 'bad-key' })).status, 404);
     assert.equal((await call('account-one', '/ai/provider-keys/openai', 'DELETE')).status, 404);
@@ -82,6 +90,9 @@ test('OpenAI selects only a named integration owned by the active account, witho
     const chat = await call('account-one', '/ai/chat', 'POST', { ...base, openai_key_id: 11 });
     assert.equal(chat.status, 200);
     assert.match(await chat.text(), /OpenAI works/);
+    const selectedModelChat = await call('account-one', '/ai/chat', 'POST', { ...base, openai_key_id: 11, model: 'gpt-5.4-mini' });
+    assert.equal(selectedModelChat.status, 200);
+    assert.match(await selectedModelChat.text(), /OpenAI works/);
     expectedKey = activeKey;
     const otherKey = await call('account-one', '/ai/chat', 'POST', { ...base, openai_key_id: 12 });
     assert.equal(otherKey.status, 200);
@@ -95,7 +106,7 @@ test('OpenAI selects only a named integration owned by the active account, witho
     const single = await call('account-three', '/ai/chat', 'POST', base);
     assert.equal(single.status, 200);
     assert.match(await single.text(), /OpenAI works/);
-    assert.equal(openaiCalls, 4);
+    assert.equal(openaiCalls, 5);
     if (providerError) throw providerError;
   } finally {
     child.kill();

@@ -12,7 +12,7 @@ import { cardsForTool, changesData } from './cards.js';
  * AUTH — the caller sends its OWN Magileads credentials:
  *   Authorization: Bearer <magileads access_token>   (what the React app already has)
  *   or  X-API-Key: <magileads api key>
- * Those credentials read the caller's OpenAI integration from Magileads and
+ * Those credentials read the caller's AI integration from Magileads and
  * execute tools server-side. They are NEVER put in the model context.
  *
  * This server does NOT refresh tokens: the React front already owns that logic
@@ -21,10 +21,10 @@ import { cardsForTool, changesData } from './cards.js';
  */
 
 import http from "node:http";
-import { getMe, listOpenAiIntegrations } from "./magileads.js";
+import { getMe, listAiIntegrations } from "./magileads.js";
 import { AI_TOOLS, TOOL_LABELS, CREATES_LIST, createsListForTool, executeTool } from "./tools.js";
 import { buildSystemPrompt } from "./prompt.js";
-import { MODEL_PROVIDERS, readModelStream, resolveIncludedModel, resolveModels, upstreamRequest } from './model-providers.js';
+import { KEY_TYPE_FOR_PROVIDER, MODEL_PROVIDERS, listProviderModels, readModelStream, resolveIncludedModel, resolveModels, selectedModel, upstreamRequest } from './model-providers.js';
 import { approvedRunTool, approvedToolArgs, parseImportApproval } from './import-approval.js';
 import { checkIncludedBudget, sharedPromptTooLarge, RequestBudget, INCLUDED_MAX_PRICE, FREE_MAX_PRICE } from './included-budget.js';
 import { redactHiddenAuditText } from './assistant-policy.js';
@@ -251,7 +251,11 @@ async function handleChat(req, res, cors) {
   if (provider !== 'openrouter' && tier === 'free') {
     return json(res, 400, { ok: false, errorKey: 'paid_provider_has_no_free_tier' }, cors);
   }
-  const included = profile.level === 'user' && provider === 'openrouter';
+  const selectedId = body.provider_key_id ?? body.openai_key_id ?? null;
+  if (selectedId !== null && (!Number.isSafeInteger(selectedId) || selectedId <= 0)) {
+    return json(res, 400, { ok: false, errorKey: provider === 'openai' ? 'invalid_openai_key_id' : 'invalid_provider_key_id' }, cors);
+  }
+  const included = profile.level === 'user' && provider === 'openrouter' && selectedId === null;
   const cappedIncluded = included && enforceUsageLimits;
   if (cappedIncluded && sharedPromptTooLarge(clientMessages)) {
     return json(res, 413, { ok: false, errorKey: 'shared_prompt_too_large' }, cors);
@@ -275,39 +279,40 @@ async function handleChat(req, res, cors) {
     candidateKeys = [...paidModels.map(() => paidKey), ...freeModels.map(() => freeKey)];
     candidateTiers = [...paidModels.map(() => 'simple'), ...freeModels.map(() => 'free')];
   }
-  if (!candidates.length || (included && !candidateKeys?.some(Boolean))) {
-    return json(
-      res,
-      tier === "custom" ? 400 : 503,
-      {
-        ok: false,
-        errorKey: tier === "custom" ? "invalid_custom_model" : "ai_not_configured",
-      },
-      cors,
-    );
-  }
-
   let providerKey = AI_API_KEY;
-  if (provider === 'openai') {
+  if (provider !== 'openrouter' || selectedId !== null) {
     // Magileads remains the only credential store. Resolve the authenticated
     // account's integration afresh for every chat; never persist or cache it.
-    const integrations = await listOpenAiIntegrations(auth);
+    const integrations = await listAiIntegrations(auth);
     if (!integrations.ok) return json(res, 502, { ok: false, errorKey: 'integration_unavailable' }, cors);
-    if (!integrations.integrations.length) return json(res, 412, { ok: false, errorKey: 'provider_key_missing' }, cors);
-    const selectedId = body.openai_key_id;
-    if (selectedId != null && (!Number.isSafeInteger(selectedId) || selectedId <= 0)) {
-      return json(res, 400, { ok: false, errorKey: 'invalid_openai_key_id' }, cors);
-    }
-    if (selectedId == null && integrations.integrations.length > 1) {
-      return json(res, 409, { ok: false, errorKey: 'openai_key_selection_required' }, cors);
+    const keys = integrations.integrations.filter(item => item.type === KEY_TYPE_FOR_PROVIDER[provider]);
+    if (!keys.length) return json(res, 412, { ok: false, errorKey: 'provider_key_missing' }, cors);
+    if (selectedId == null && keys.length > 1) {
+      return json(res, 409, { ok: false, errorKey: provider === 'openai' ? 'openai_key_selection_required' : 'provider_key_selection_required' }, cors);
     }
     const selected = selectedId == null
-      ? integrations.integrations[0]
-      : integrations.integrations.find((item) => item.id === selectedId);
-    if (!selected) return json(res, 412, { ok: false, errorKey: 'selected_openai_key_unavailable' }, cors);
+      ? keys[0] : keys.find((item) => item.id === selectedId);
+    if (!selected) return json(res, 412, { ok: false, errorKey: provider === 'openai' ? 'selected_openai_key_unavailable' : 'selected_provider_key_unavailable' }, cors);
     providerKey = selected.key;
+    if (body.model != null) {
+      const model = selectedModel(provider, body.model);
+      if (!model) return json(res, 400, { ok: false, errorKey: 'invalid_custom_model' }, cors);
+      try {
+        const catalog = await listProviderModels(provider, providerKey);
+        if (!catalog.some(item => item.id === model)) return json(res, 400, { ok: false, errorKey: 'model_not_available' }, cors);
+      } catch (error) {
+        return json(res, 502, { ok: false, errorKey: error.message === 'provider_key_invalid' ? 'provider_key_invalid' : 'provider_models_unavailable' }, cors);
+      }
+      candidates = [model];
+    } else if (provider !== 'openai') {
+      return json(res, 409, { ok: false, errorKey: 'model_selection_required' }, cors);
+    }
   } else if (!providerKey && !included) {
     return json(res, 503, { ok: false, errorKey: 'ai_not_configured' }, cors);
+  }
+  if (!candidates.length || (included && !candidateKeys?.some(Boolean))) {
+    return json(res, tier === 'custom' ? 400 : 503,
+      { ok: false, errorKey: tier === 'custom' ? 'invalid_custom_model' : 'ai_not_configured' }, cors);
   }
 
   const pageContext = /^\[(?:Screen context, not written by the user and not to be quoted|Screen context from the app, not written by the user)\]/.test(clientMessages.at(-1).content);
@@ -321,7 +326,7 @@ async function handleChat(req, res, cors) {
       ? 'L’utilisateur vient de confirmer la cible dans le formulaire « Valider la cible » : c’est le clic final. Mets la cible à jour si besoin, puis lance la recherche avec l’outil run_* correspondant, sans redemander de confirmation ni renvoyer vers le formulaire.'
       : 'Cette interface utilise un formulaire de confirmation distinct après la proposition de cible. Un simple « go » écrit dans le chat ne lance rien : invite l’utilisateur à confirmer dans le formulaire « Valider la cible », à côté de la conversation. Seul le clic final autorise un outil run_*.' }] : []),
     ...clientMessages];
-  if (cappedIncluded) convo[0].content += '\nIA INCLUSE : au plus trois campagnes en audit détaillé et douze appels d’outils par demande. Pour un audit global, demande de choisir une à trois campagnes ou de connecter une clé OpenAI personnelle. Les listes et résumés globaux restent disponibles. Si le serveur bloque le coût ou le volume, arrête les outils et invite à réduire le périmètre.';
+  if (cappedIncluded) convo[0].content += '\nIA INCLUSE : au plus trois campagnes en audit détaillé et douze appels d’outils par demande. Pour un audit global, demande de choisir une à trois campagnes ou de connecter une clé IA personnelle. Les listes et résumés globaux restent disponibles. Si le serveur bloque le coût ou le volume, arrête les outils et invite à réduire le périmètre.';
   const requestBudget = cappedIncluded ? new RequestBudget() : null;
   const workload = cappedIncluded ? new IncludedWorkload() : null;
 
@@ -415,7 +420,7 @@ async function handleChat(req, res, cors) {
 
   async function readOpened(opened, onText) {
     try {
-      const answer = await readModelStream(opened.upstream.body, onText);
+      const answer = await readModelStream(opened.upstream.body, onText, provider);
       requestBudget?.settle(opened.reservation, answer.usage);
       return answer;
     } finally { clearTimeout(opened.timeout); }
@@ -470,7 +475,7 @@ async function handleChat(req, res, cors) {
           fallback: budgetFallback || modelIdx > 0 });
       }
 
-      const { assistantContent, calls } = await readOpened(opened, (delta) => {
+      const { assistantContent, reasoningContent, calls } = await readOpened(opened, (delta) => {
         produced = true;
         sendText(delta);
       });
@@ -491,6 +496,7 @@ async function handleChat(req, res, cors) {
       convo.push({
         role: "assistant",
         content: assistantContent || null,
+        ...(provider === 'deepseek' && reasoningContent ? { reasoning_content: reasoningContent } : {}),
         tool_calls: calls.map((c) => ({
           id: c.id,
           type: "function",
@@ -593,14 +599,38 @@ async function handleChat(req, res, cors) {
 async function handleProviders(req, res, cors) {
   const caller = await authenticate(req, res, cors);
   if (!caller) return;
-  const integrations = await listOpenAiIntegrations(caller.auth);
+  const integrations = await listAiIntegrations(caller.auth);
   if (!integrations.ok) return json(res, 502, { ok: false, errorKey: 'integration_unavailable' }, cors);
+  const keys = Object.fromEntries(MODEL_PROVIDERS.map(provider => [provider,
+    integrations.integrations.filter(item => item.type === KEY_TYPE_FOR_PROVIDER[provider])
+      .map(({ id, name }) => ({ id, name }))]));
   return json(res, 200, {
     ok: true,
     openrouter_available: Boolean(AI_API_KEY),
-    configured: { openai: integrations.integrations.length > 0, anthropic: false },
-    openai_keys: integrations.integrations.map(({ id, name }) => ({ id, name })),
+    configured: Object.fromEntries(MODEL_PROVIDERS.filter(provider => provider !== 'openrouter').map(provider => [provider, keys[provider].length > 0])),
+    openai_keys: keys.openai,
+    keys,
   }, cors);
+}
+
+async function handleModels(req, res, cors, url) {
+  const caller = await authenticate(req, res, cors);
+  if (!caller) return;
+  const provider = url.searchParams.get('provider');
+  const id = Number(url.searchParams.get('key_id'));
+  if (!MODEL_PROVIDERS.includes(provider) || !Number.isSafeInteger(id) || id <= 0) {
+    return json(res, 400, { ok: false, errorKey: 'invalid_provider_key_id' }, cors);
+  }
+  const integrations = await listAiIntegrations(caller.auth);
+  if (!integrations.ok) return json(res, 502, { ok: false, errorKey: 'integration_unavailable' }, cors);
+  const selected = integrations.integrations.find(item => item.id === id && item.type === KEY_TYPE_FOR_PROVIDER[provider]);
+  if (!selected) return json(res, 412, { ok: false, errorKey: 'selected_provider_key_unavailable' }, cors);
+  try {
+    return json(res, 200, { ok: true, provider, key_id: id, models: await listProviderModels(provider, selected.key) }, cors);
+  } catch (error) {
+    return json(res, error.message === 'provider_key_invalid' ? 422 : 502,
+      { ok: false, errorKey: error.message === 'provider_key_invalid' ? 'provider_key_invalid' : 'provider_models_unavailable' }, cors);
+  }
 }
 
 const server = http.createServer(async (req, res) => {
@@ -648,6 +678,9 @@ const server = http.createServer(async (req, res) => {
 
   if (url.pathname === '/ai/providers' && req.method === 'GET') {
     return handleProviders(req, res, cors);
+  }
+  if (url.pathname === '/ai/models' && req.method === 'GET') {
+    return handleModels(req, res, cors, url);
   }
 
   if (req.method === "POST" && url.pathname === "/ai/chat") {
