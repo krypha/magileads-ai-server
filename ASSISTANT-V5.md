@@ -8,6 +8,22 @@ Le serveur conserve les outils de lecture/ciblage existants et ajoute un catalog
 
 ## Comportement
 
+### Réponses orientées utilisateur
+
+Les consignes du modèle distinguent ses opérations internes de la réponse
+affichée. Un audit commence par les résultats de la campagne et les actions
+conseillées ; il ne cite pas les noms d’outils, les endpoints, les identifiants
+internes de workflow ou le filtrage technique de certaines mesures. Une limite
+n’est mentionnée que si elle change la conclusion demandée, en termes métier.
+Les chiffres restent vérifiés ; un taux n’est pas comparé à une moyenne externe
+sans objectif ou référence chiffrée vérifiée. Les identifiants de listes et de
+campagnes restent disponibles lorsqu’ils servent à choisir ou à ouvrir une
+entité, et une explication technique reste possible si elle est demandée.
+
+`examples/audit-tone-model-smoke.mjs` teste cette formulation avec le fournisseur
+réel et une campagne entièrement fictive. Il vérifie l’absence de détails
+techniques et de comparaison non sourcée ; aucune donnée client n’est lue.
+
 ### Cartes de listes uniquement pour choisir
 
 `list_contact_lists` et `get_contact_list` sont des lectures sans carte visible.

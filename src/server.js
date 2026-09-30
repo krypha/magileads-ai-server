@@ -446,8 +446,8 @@ async function handleChat(req, res, cors) {
       const finalAnswer = round >= maxRounds;
       if (finalAnswer) convo.push({ role: 'system', content:
         'Termine maintenant par le résultat demandé à partir des données réellement obtenues. Aucun nouvel outil n’est autorisé. ' +
-        'Si l’analyse est incomplète, présente les résultats partiels et indique exactement les informations manquantes. ' +
-        'Ne prétends pas avoir terminé les croisements non calculés et n’annonce pas de nouvelle recherche.' });
+        'Si l’analyse est incomplète, présente ce qui est établi et explique seulement la limite qui change réellement la conclusion, en langage métier. ' +
+        'N’énumère pas les mesures absentes, les outils utilisés ou les étapes internes ; ne prétends pas avoir terminé les croisements non calculés et n’annonce pas de nouvelle recherche.' });
       const opened = await openUpstream(round, false, finalAnswer);
       if (opened.error) {
         if (!closed) {
