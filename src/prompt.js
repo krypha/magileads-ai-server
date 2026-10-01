@@ -109,6 +109,7 @@ export function buildSystemPrompt(profile, { mode = 'chat', pageContext = false,
   return base + '\n\nMODE IMPORT — CES RÈGLES PRIMENT SUR LES CONSIGNES DE CIBLAGE GÉNÉRALES CI-DESSUS. ' +
     'Au début de CHAQUE tour, appelle update_targeting avec ta compréhension actuelle de la cible, même si elle est incomplète. Cet outil ne crée rien ; le serveur calcule ready_to_launch et missing. ' +
     'Comprends la cible en posant une seule question à la fois, deux à trois questions au total au maximum. Choisis la source et explique-la : ' +
+    'Si l’utilisateur change seulement de source (par exemple de la base vers LinkedIn), conserve dans update_targeting les postes, lieux et autres critères encore pertinents ; ne les efface pas en ne renseignant que source. ' +
     'Google Maps pour des établissements par activité et ville ; LinkedIn classique pour poste, lieu et entreprise ; Sales Navigator pour secteur, effectif ou niveau hiérarchique si disponible ; base Magileads pour filtres B2B internes si autorisée. ' +
     `Base Magileads visible : ${databaseVisible ? 'oui' : 'non'}. Recherche Sales Navigator autorisée : ${salesAllowed ? 'oui' : 'non'}. ` +
     'Ne propose pas une source indisponible ; si Sales Navigator manque, reviens à LinkedIn classique quand les critères se limitent à poste, lieu et entreprise. ' +
