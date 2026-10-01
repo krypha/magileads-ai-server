@@ -5,7 +5,7 @@
  */
 import { hasPermission } from './import-targeting.js';
 
-export function buildSystemPrompt(profile, { mode = 'chat', pageContext = false, personalKey = false } = {}) {
+export function buildSystemPrompt(profile, { mode = 'chat', pageContext = false, personalKey = false, formBasedImport = false } = {}) {
   const fullName = [profile?.first_name, profile?.last_name].filter(Boolean).join(" ").trim();
   const identity =
     [fullName && `nom : ${fullName}`, profile?.email && `email : ${profile.email}`]
@@ -62,20 +62,21 @@ export function buildSystemPrompt(profile, { mode = 'chat', pageContext = false,
     `N'ajoute pas de préambule expliquant les appels réalisés. Signale seulement une limite qui change réellement l'analyse, sans évoquer les mesures écartées en amont. ` +
     `Sans objectif fourni par l'utilisateur ou référence chiffrée vérifiée dans les données consultées, ne qualifie aucun taux de « bon » ou « faible » et ne le compare pas à une moyenne sectorielle : décris uniquement le résultat observé. Présente les interprétations non prouvées comme des pistes à vérifier.\n\n` +
 
-    `CIBLAGE GOOGLE MAPS : pour « cible/trouve des <activité> à <ville(s)> », utilise run_google_maps_targeting (search = l'activité, locations = les villes). ` +
-    `Il crée une liste et lance une extraction ASYNCHRONE. Après l'appel, annonce que la liste « <nom> » est en cours de création et que l'utilisateur sera ` +
-    `notifié à la fin — n'appelle PAS l'outil plusieurs fois pour la même demande.\n\n` +
+    (mode === 'import' ? '' :
+      `CIBLAGE GOOGLE MAPS : pour « cible/trouve des <activité> à <ville(s)> », utilise run_google_maps_targeting (search = l'activité, locations = les villes). ` +
+      `Il crée une liste et lance une extraction ASYNCHRONE. Après l'appel, annonce que la liste « <nom> » est en cours de création et que l'utilisateur sera ` +
+      `notifié à la fin — n'appelle PAS l'outil plusieurs fois pour la même demande.\n\n` +
 
-    `CIBLAGE LINKEDIN (protocole) : quand l'utilisateur veut cibler sur LinkedIn, procède par ÉTAPES, une à la fois : ` +
-    `1) si le critère n'est pas clair, demande QUOI cibler (poste, lieu, entreprise) ; ` +
-    `2) appelle l'outil ask_linkedin_account — il affiche LUI-MÊME à l'utilisateur une carte cliquable des vrais comptes valides. ` +
-    `Tu ne dois JAMAIS énumérer, nommer ni inventer les comptes toi-même : contente-toi d'inviter l'utilisateur à cliquer. ` +
-    `Si l'outil renvoie accounts vide, dis qu'aucun compte valide n'est connecté et arrête-toi ; ` +
-    `3) ATTENDS que l'utilisateur choisisse (il t'enverra un message indiquant le compte + son id — n'utilise QUE cet id) ; ` +
-    `4) demande ensuite le NOM de la liste à créer ; ` +
-    `5) appelle run_linkedin_targeting avec linkedin_account_id (celui choisi), list_name et les critères (title/location/company) ; ` +
-    `6) termine par un court RÉSUMÉ (compte utilisé, critères, nom de la liste) en précisant que l'extraction est lancée et que l'utilisateur sera notifié ` +
-    `à la fin. N'appelle run_linkedin_targeting qu'une seule fois.\n\n` +
+      `CIBLAGE LINKEDIN (protocole) : quand l'utilisateur veut cibler sur LinkedIn, procède par ÉTAPES, une à la fois : ` +
+      `1) si le critère n'est pas clair, demande QUOI cibler (poste, lieu, entreprise) ; ` +
+      `2) appelle l'outil ask_linkedin_account — il affiche LUI-MÊME à l'utilisateur une carte cliquable des vrais comptes valides. ` +
+      `Tu ne dois JAMAIS énumérer, nommer ni inventer les comptes toi-même : contente-toi d'inviter l'utilisateur à cliquer. ` +
+      `Si l'outil renvoie accounts vide, dis qu'aucun compte valide n'est connecté et arrête-toi ; ` +
+      `3) ATTENDS que l'utilisateur choisisse (il t'enverra un message indiquant le compte + son id — n'utilise QUE cet id) ; ` +
+      `4) demande ensuite le NOM de la liste à créer ; ` +
+      `5) appelle run_linkedin_targeting avec linkedin_account_id (celui choisi), list_name et les critères (title/location/company) ; ` +
+      `6) termine par un court RÉSUMÉ (compte utilisé, critères, nom de la liste) en précisant que l'extraction est lancée et que l'utilisateur sera notifié ` +
+      `à la fin. N'appelle run_linkedin_targeting qu'une seule fois.\n\n`) +
 
     `RÈGLE ABSOLUE : ne fabrique JAMAIS de données ni de sortie d'outil (comptes, ids, JSON…). Si tu n'as pas une information, dis-le ; ` +
     `n'invente pas de "réponse brute d'API".\n\n` +
@@ -112,7 +113,9 @@ export function buildSystemPrompt(profile, { mode = 'chat', pageContext = false,
     `Base Magileads visible : ${databaseVisible ? 'oui' : 'non'}. Recherche Sales Navigator autorisée : ${salesAllowed ? 'oui' : 'non'}. ` +
     'Ne propose pas une source indisponible ; si Sales Navigator manque, reviens à LinkedIn classique quand les critères se limitent à poste, lieu et entreprise. ' +
     'Pour une liste existante, cherche-la avec list_contact_lists(query), puis utilise son contact_list_id à la place de list_name. ' +
-    'Pour LinkedIn, appelle ask_linkedin_account (sales_navigator_only:true pour Sales Navigator), montre uniquement les vrais comptes disponibles et attends le choix de l’utilisateur. ' +
+    (formBasedImport
+      ? 'Pour LinkedIn, le formulaire « Valider la cible » affiche les vrais comptes utilisables et demande à l’utilisateur d’en choisir un. Présente la cible même si aucun compte n’a encore été choisi ; n’attends pas une sélection dans le chat pour proposer la validation. Le clic final fournit le compte choisi et le serveur vérifie sa validité avant l’extraction. '
+      : 'Pour LinkedIn, appelle ask_linkedin_account (sales_navigator_only:true pour Sales Navigator), montre uniquement les vrais comptes disponibles et attends le choix de l’utilisateur. ') +
     'Pour la base Magileads, construis les filtres exacts, appelle count_database_targeting et donne le compte trouvé AVANT de demander la validation. ' +
     'Présente ensuite la source et la cible en quelques lignes. ATTENDS un nouveau message de validation explicite (« valide », « go », « c’est bon » ou « La cible me convient… ») avant tout run_* ou autre outil qui crée ou alimente une liste, Google Maps compris. ' +
     'Reprends exactement le nom de liste donné dans la validation, ou l’ID de liste existante choisi. Le serveur bloque les mutations avant validation et limite à un seul lancement par réponse. ' +

@@ -402,7 +402,7 @@ Le front affiche maintenant un bouton de revue **après** une proposition prête
 
 `event: targeting.criteria` transporte **exactement** l'objet normalisé ci-dessous. Il vient de `update_targeting` (sans appel API) ; le serveur calcule `ready_to_launch` et `missing`. Cet outil n'émet ni `assistant.card` ni `assistant.changed`.
 
-`event: targeting.count` transporte `{count:number,filters:object[]}` après un `count_database_targeting` réussi. Le front attend ce comptage et ses filtres avant d'autoriser la revue d'une cible issue de la base Magileads, et attend le choix d'un compte LinkedIn pour les sources LinkedIn et Sales Navigator.
+`event: targeting.count` transporte `{count:number,filters:object[]}` après un `count_database_targeting` réussi. Le front attend ce comptage et ses filtres avant d'autoriser la revue d'une cible issue de la base Magileads. Pour LinkedIn et Sales Navigator, la revue s'affiche dès que les critères sont prêts ; le formulaire charge les comptes valides et sans checkpoint du compte actif, demande d'en choisir un, puis transmet son ID dans `import_approval`. Le bouton de lancement reste désactivé sans compte utilisable.
 
 ```json
 {

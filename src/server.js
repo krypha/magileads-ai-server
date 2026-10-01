@@ -251,6 +251,7 @@ async function handleChat(req, res, cors) {
   }
   if (approval?.criteria) {
     clientMessages.at(-1).content += `\n\nCritères confirmés dans le formulaire : ${JSON.stringify(approval.criteria)}. Utilise uniquement la source et les valeurs confirmées.`;
+    if (approval.accountId) clientMessages.at(-1).content += `\nCompte LinkedIn choisi dans le formulaire : ID ${approval.accountId}.`;
   }
 
   // The user-facing tier maps to real model(s) HERE.
@@ -324,7 +325,9 @@ async function handleChat(req, res, cors) {
   }
 
   const pageContext = /^\[(?:Screen context, not written by the user and not to be quoted|Screen context from the app, not written by the user)\]/.test(clientMessages.at(-1).content);
-  const convo = [{ role: "system", content: buildSystemPrompt(profile, { mode: importMode ? 'import' : 'chat', pageContext, personalKey }) },
+  const convo = [{ role: "system", content: buildSystemPrompt(profile, {
+    mode: importMode ? 'import' : 'chat', pageContext, personalKey, formBasedImport: body.mode === 'import',
+  }) },
     // The import UI's own confirmation. Without it, a typed "go" launches
     // nothing and the model points at the form; with it — the form's final
     // click, carried as `import_approval` — that same line told the model to
