@@ -166,7 +166,22 @@ export const AI_TOOLS = [
     function: {
       name: "list_campaigns",
       description:
-        "Liste les campagnes (programmations) du compte avec leurs statistiques (statut, contactés, taux d'ouverture/clic/réponse, date). Recherche libre optionnelle.",
+        "Lit les campagnes (programmations) du compte avec leurs statistiques, SANS carte visible. Pour faire choisir une campagne à l'utilisateur, utilise ask_campaign.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Filtre texte sur le nom (optionnel)." },
+          page: { type: "number", description: "Page (défaut 1)." },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "ask_campaign",
+      description:
+        "Affiche des campagnes en cartes cliquables UNIQUEMENT lorsque l'utilisateur doit choisir une campagne : cible non précisée, nom ambigu ou demande explicite de sélection. Attends son choix. Ne l'utilise pas pour un classement, un audit ou une campagne déjà identifiée.",
       parameters: {
         type: "object",
         properties: {
@@ -415,6 +430,7 @@ export const TOOL_LABELS = {
   list_dropcontact_connections: "Connexions Dropcontact",
   get_account_overview: "Lecture du compte",
   list_campaigns: "Lecture des campagnes",
+  ask_campaign: "Choix de campagne",
   get_campaign_statistics: "Statistiques de campagne",
   get_campaign: "Détail de la campagne",
   list_contact_lists: "Lecture des listes",
@@ -556,6 +572,7 @@ export async function executeTool(name, argsRaw, auth, context = {}) {
         });
       }
 
+      case "ask_campaign":
       case "list_campaigns": {
         const r = await listProgrammationsStats(auth, {
           page: Number(args.page) || 1,

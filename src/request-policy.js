@@ -78,7 +78,7 @@ export class IncludedWorkload {
   }
 
   observe(name, raw) {
-    if (name !== 'list_campaigns') return;
+    if (name !== 'list_campaigns' && name !== 'ask_campaign') return;
     try {
       for (const campaign of JSON.parse(raw).campaigns ?? []) {
         if (campaign.id != null && campaign.workflow_id != null) {
