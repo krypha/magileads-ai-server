@@ -5,7 +5,7 @@ import { EXTENDED_TOOLS, executeExtended } from './operations.js';
 import { CONTACT_COPY_FILTER_SCHEMA, copyContactsToList } from './contact-copy.js';
 import { PRM_TOOLS, PRM_TOOL_NAMES, executePrmTool } from './prm.js';
 import {
-  countDatabase, hasPermission, normalizeTargeting, positiveId, resolveListTarget,
+  countDatabase, hasPermission, updateImportTargeting, positiveId, resolveListTarget,
   runDatabase, runSalesNavigator, usableLinkedInAccount,
 } from './import-targeting.js';
 /**
@@ -522,7 +522,10 @@ export async function executeTool(name, argsRaw, auth, context = {}) {
     // Do not truncate their contents into a preview that cannot be downloaded.
     if (name === 'create_document') return JSON.stringify(createDocument(args));
     if (name === 'copy_contacts_to_list') return cap(await copyContactsToList(args, auth, context), 32000);
-    if (name === 'update_targeting') return cap(normalizeTargeting(args));
+    if (name === 'update_targeting') {
+      context.targeting = updateImportTargeting(args, context.targeting);
+      return cap(context.targeting);
+    }
     if (PRM_TOOL_NAMES.has(name)) return cap(await executePrmTool(name, args, auth, context), 12000);
     if (name === 'count_database_targeting' || name === 'run_database_targeting' || name === 'run_sales_navigator_targeting') {
       const me = context.profile ? { ok: true, data: { user_profile: context.profile } } : await getMe(auth);

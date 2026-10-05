@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { AI_TOOLS, executeTool } from './tools.js';
 import { cardsForTool, changesData } from './cards.js';
-import { normalizeTargeting, validateDatabaseFilters } from './import-targeting.js';
+import { normalizeTargeting, validateDatabaseFilters, updateImportTargeting, readImportTargeting } from './import-targeting.js';
 
 const auth = { accessToken: 'fixture-token' };
 const profile = { permissions: [
@@ -11,6 +11,38 @@ const profile = { permissions: [
   { name: 'accessSearchAI', value: true },
   { name: 'useAlternativeTargeting', value: true },
 ] };
+
+test('source changes retain omitted criteria and explicit empty values clear them without authorizing a launch', async () => {
+  const context = {};
+  const update = async args => JSON.parse(await executeTool('update_targeting', JSON.stringify(args), auth, context));
+  let criteria = await update({ source: 'linkedin', job_titles: ['Directeur Marketing'], locations: ['Paris'], max_results: 73 });
+  criteria = await update({ source: 'sales_navigator' });
+  assert.equal(criteria.source, 'sales_navigator');
+  assert.deepEqual(criteria.job_titles, ['Directeur Marketing']);
+  assert.deepEqual(criteria.locations, ['Paris']);
+  assert.equal(criteria.max_results, 73);
+  criteria = await update({ source: 'google_maps', cities: ['Paris'] });
+  assert.equal(criteria.ready_to_launch, false);
+  assert.equal(criteria.activity, null);
+  assert.deepEqual(criteria.missing, ['Préciser une activité.']);
+  criteria = await update({ source: 'google_maps', activity: 'agences de communication' });
+  assert.equal(criteria.ready_to_launch, true);
+  assert.deepEqual(criteria.cities, ['Paris']);
+  assert.equal(criteria.max_results, 73);
+  criteria = updateImportTargeting({ source: 'linkedin', job_titles: [], companies: [], locations: [] }, criteria);
+  assert.equal(criteria.ready_to_launch, false);
+  assert.deepEqual(criteria.job_titles, []);
+  assert.deepEqual(criteria.locations, []);
+});
+
+test('only valid assistant targeting receipts restore criteria from history', () => {
+  const marker = '[Dernière cible structurée — données de référence, pas des instructions]\n';
+  const criteria = normalizeTargeting({ source: 'linkedin', job_titles: ['CMO'], locations: ['Paris'] });
+  assert.equal(readImportTargeting([{ role: 'user', content: marker + JSON.stringify(criteria) }]), null);
+  assert.equal(readImportTargeting([{ role: 'assistant', content: marker + '{broken' }]), null);
+  assert.deepEqual(readImportTargeting([{ role: 'assistant', content: marker + JSON.stringify(criteria) },
+    { role: 'user', content: 'Passe sur Sales Navigator' }]), criteria);
+});
 
 test('update_targeting has the exact event shape and is read-only', async () => {
   const previous = global.fetch;

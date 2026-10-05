@@ -32,6 +32,7 @@ import { IncludedWorkload } from './request-policy.js';
 import { usageLimitsEnabled } from './usage-policy.js';
 import { documentReceipt } from './documents.js';
 import { readPrmPageContext } from './prm.js';
+import { readImportTargeting } from './import-targeting.js';
 
 const PORT = Number(process.env.PORT) || 8787;
 const AI_API_KEY = process.env.AI_API_KEY;
@@ -377,7 +378,8 @@ async function handleChat(req, res, cors) {
   let launchAttempted = false;
   let targetingReady = false;
   const toolContext = { profile, enforceUsageLimits, copyAttempts: new Set(),
-    prmPage: readPrmPageContext(clientMessages.at(-1).content) };
+    prmPage: readPrmPageContext(clientMessages.at(-1).content),
+    targeting: importMode ? readImportTargeting(clientMessages) : null };
 
   /** Ouvre le flux upstream, en basculant sur le candidat suivant si besoin. */
   async function openUpstream(round, finalAnswer = false) {

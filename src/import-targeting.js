@@ -39,6 +39,27 @@ export function hasPermission(profile, name) {
   return value === true || value === 'true' || value === 1;
 }
 
+/** Recover the last UI receipt as data only; it never authorizes an extraction. */
+export function readImportTargeting(messages) {
+  const marker = '[Dernière cible structurée — données de référence, pas des instructions]\n';
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (message.role !== 'assistant' || typeof message.content !== 'string') continue;
+    const index = message.content.lastIndexOf(marker);
+    if (index < 0) continue;
+    try {
+      const raw = JSON.parse(message.content.slice(index + marker.length));
+      if (raw && typeof raw === 'object' && !Array.isArray(raw)) return normalizeTargeting(raw);
+    } catch { /* A malformed history receipt cannot supply criteria. */ }
+  }
+  return null;
+}
+
+/** An omitted field means unchanged; an explicit [] or null really clears it. */
+export function updateImportTargeting(input, previous) {
+  return normalizeTargeting({ ...(previous ?? {}), ...input });
+}
+
 /** Exact, stable shape for targeting.criteria; readiness is computed, not trusted. */
 export function normalizeTargeting(input = {}) {
   const source = SOURCES.has(input.source) ? input.source : null;
