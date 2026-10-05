@@ -515,7 +515,7 @@ Payloads Magileads envoyés par les nouveaux outils (les tableaux vides sont omi
 
 ```text
 POST /targeting/linkedin/generate-sales-navigator-peoples-search-url
-{"current_titles":["Directeur"],"locations":["105015875"],"industries":["4"],"current_companies":["Acme"],"company_head_counts":["51-200"],"seniority_levels":["director"]}
+{"current_titles":["Directeur"],"locations":[105015875],"industries":[4],"current_companies":["Acme"],"company_head_counts":["51-200"],"seniority_levels":["director"]}
 POST /targeting/linkedin/extract-sales-navigator-peoples-search[-alternative]
 {"linkedin_sales_navigator_search_url":"https://www.linkedin.com/sales/search/people?...","linkedin_people_search_url":"https://www.linkedin.com/sales/search/people?...","linkedin_account_id":7,"generate_email":true,"max_results":100,"contact_list_name":"Prospects","contact_list_id":null,"contact_list_language":null,"contact_list_country":null,"exclude_viewed_leads":false,"exclude_crm_contacts":false}
 POST /targeting/database/count-preview
@@ -524,7 +524,9 @@ POST /targeting/database/extract
 {"contact_list_name":"Prospects","contact_list_id":null,"max_results":100,"filters":[{"field":"contact_location","contains":["Paris, France"]}],"contact_list_country":null,"contact_list_language":"FRA"}
 ```
 
-Pour alimenter une liste existante, les deux clés deviennent `"contact_list_name":null,"contact_list_id":123`. `locations` et `industries` de Sales Navigator sont des identifiants numériques encodés comme chaînes conformément au contrat de cet outil ; le Swagger public les déclare comme entiers, ce qui demande une vérification authentifiée avec l'API avant de conclure sur leur acceptation effective.
+Pour alimenter une liste existante, les deux clés deviennent `"contact_list_name":null,"contact_list_id":123`. Les arguments d’outil restent des chaînes pour les noms de lieux et secteurs ; après résolution, `locations` et `industries` sont envoyés à Magileads comme des entiers JSON, conformément au Swagger public et à `AiImport.jsx` / `QuickImport.jsx` de la v4. Les postes, entreprises, effectifs et niveaux restent des chaînes.
+
+Comparaison avec « Import avec IA » v4 le 05/10/2026 : même générateur `generate-sales-navigator-peoples-search-url`, puis extraction `extract-sales-navigator-peoples-search` (ou `-alternative` selon la permission). La v4 lit `linkedin_url`, accepté par le serveur avec `search_url` et `url`. Le serveur vérifie aussi les filtres via plusieurs appels de génération, puis envoie une seule extraction après validation humaine, avec le compte choisi (la v4 envoyait `linkedin_account_id:null`). Un échec du premier générateur renvoie désormais `{error,stage:"search_url_generation",error_key,status_code,note}` sans extraction. Les données brutes de l’API ne sont pas exposées ; le modèle ne doit pas inventer une panne de session ou d’abonnement. Vérification du Swagger public actuel et tests de payloads/échecs ; aucune génération ni extraction authentifiée réelle effectuée pour ce correctif.
 
 Chaque `run_*` réussi retourne `{status:"extraction lancée", list_id, list_name, criteria_applied, note}`. Les extractions Sales Navigator rapportent les filtres ignorés dans `criteria_applied.ignored_filters` et `note`. Les codes de secteur viennent du catalogue du sélecteur v4 ; effectifs et niveaux utilisent les valeurs exposées dans le Swagger Magileads. Pour chacun, le serveur compare l'URL obtenue avec et sans filtre avant de l'annoncer comme appliqué. Les événements existants restent inchangés : `tool.progress` avec `creates_list:true`, puis `assistant.card` `{kind:"lists", items:[{id,name}]}` sur succès, et `assistant.changed` pour invalider les données.
 

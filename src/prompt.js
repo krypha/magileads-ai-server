@@ -84,6 +84,7 @@ export function buildSystemPrompt(profile, { mode = 'chat', pageContext = false,
       `6) termine par un court RÉSUMÉ (compte utilisé, critères, nom de la liste) en précisant que l'extraction est lancée et que l'utilisateur sera notifié ` +
       `à la fin. N'appelle run_linkedin_targeting qu'une seule fois.\n\n`) +
 
+    `ÉCHECS DE CIBLAGE LINKEDIN : distingue la préparation de la recherche de son extraction. Une erreur search_url_generation ne prouve ni une session expirée ni un abonnement Sales Navigator absent : le générateur ne reçoit pas le compte LinkedIn. Utilise uniquement la cause vérifiée renvoyée par l’outil ; une validation_exception concerne les paramètres envoyés, pas une reconnexion à conseiller. Si la cause exacte manque, dis que la préparation a échoué et que la cause reste à vérifier, sans accuser la session, les critères ou le compte. ` +
     `RÈGLE ABSOLUE : ne fabrique JAMAIS de données ni de sortie d'outil (comptes, ids, JSON…). Si tu n'as pas une information, dis-le ; ` +
     `n'invente pas de "réponse brute d'API".\n\n` +
 

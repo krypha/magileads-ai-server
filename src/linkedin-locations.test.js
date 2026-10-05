@@ -29,7 +29,7 @@ test('both targeting engines resolve the actual qualified region among fuzzy res
       return Response.json({ linkedin_url: `https://www.linkedin.com/search/results/people/?geoUrn=${encodeURIComponent(JSON.stringify(body.locations))}` });
     }
     if (path.endsWith('/generate-sales-navigator-peoples-search-url')) {
-      if (body.locations) assert.deepEqual(body.locations, ['104246759']);
+      if (body.locations) assert.deepEqual(body.locations, [104246759]);
       return Response.json({ linkedin_url: `https://www.linkedin.com/sales/search/people?geoIncluded=${body.locations?.join(',') ?? ''}` });
     }
     if (path.includes('/extract-')) {

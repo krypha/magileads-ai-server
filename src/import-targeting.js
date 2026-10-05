@@ -260,6 +260,20 @@ function salesFingerprint(raw) {
   return `${url.pathname}?${url.searchParams}`;
 }
 
+/** Keep a generation failure distinct from an account/extraction failure, without exposing raw API data. */
+export function linkedinGenerationFailure(response, engine = 'Sales Navigator') {
+  const rawKey = response.errorKey;
+  const errorKey = typeof rawKey === 'string' && /^[a-z0-9_]{1,120}$/i.test(rawKey)
+    ? rawKey : response.ok ? 'invalid_linkedin_search_url' : 'linkedin_search_generation_failed';
+  return {
+    error: errorKey === 'validation_exception'
+      ? `Les paramètres de recherche ${engine} ont été refusés avant extraction.`
+      : `La préparation de la recherche ${engine} a échoué avant extraction.`,
+    stage: 'search_url_generation', error_key: errorKey, status_code: response.status,
+    note: 'Aucune extraction envoyée. Le générateur ne reçoit pas le compte LinkedIn : ne déduis pas de cet échec une session expirée ou un abonnement invalide sans autre preuve.',
+  };
+}
+
 /** Read-only lookup, also used before a launch so API failures are not mistaken for unknown places. */
 export async function lookupLinkedinLocations(name, auth) {
   if (typeof name !== 'string' || !name.trim() || name.trim().length > 120) return { error: 'Précise une localisation (120 caractères maximum).' };
@@ -330,7 +344,8 @@ export async function runSalesNavigator(args, auth, profile) {
   const resolved = await resolveLinkedinLocations(requestedLocations, auth);
   if (resolved.error) return resolved;
   const locationsResolved = resolved.locations;
-  const locations = locationsResolved.map(item => String(item.id));
+  // The v4 wizard and Magileads schema use JSON integers, not numeric strings.
+  const locations = locationsResolved.map(item => item.id);
   const ignored = [];
   const payload = { current_titles: titles, locations, current_companies: companies };
   for (const [key, values, mapper] of [
@@ -340,15 +355,17 @@ export async function runSalesNavigator(args, auth, profile) {
   ]) {
     const mapped = values.map(value => ({ value, mapped: mapper(value) }));
     for (const item of mapped) if (!item.mapped) ignored.push(`${key}: « ${item.value} » non reconnu dans les valeurs de Magileads.`);
-    payload[key] = mapped.filter(item => item.mapped).map(item => item.mapped.id);
+    payload[key] = mapped.filter(item => item.mapped).map(item =>
+      key === 'industries' ? Number(item.mapped.id) : item.mapped.id);
   }
   const compact = object => Object.fromEntries(Object.entries(object).filter(([, value]) => Array.isArray(value) && value.length));
   // Each uncertain facet is tried against the generation endpoint. A facet that
   // leaves the URL unchanged has not been applied and must not enter extraction.
   const base = compact({ ...payload, industries: [], company_head_counts: [], seniority_levels: [] });
   let active = base;
-  let url = salesUrl(await generateSalesNavSearchUrl(auth, active));
-  if (!url) return { error: 'Génération de l’URL Sales Navigator échouée avant extraction.' };
+  const generated = await generateSalesNavSearchUrl(auth, active);
+  let url = salesUrl(generated);
+  if (!url) return linkedinGenerationFailure(generated);
   const withoutLocation = compact({ ...base, locations: [] });
   const broadUrl = salesUrl(await generateSalesNavSearchUrl(auth, withoutLocation));
   if (broadUrl && salesFingerprint(broadUrl) === salesFingerprint(url)) {

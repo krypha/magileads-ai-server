@@ -6,7 +6,7 @@ import { CONTACT_COPY_FILTER_SCHEMA, copyContactsToList } from './contact-copy.j
 import { PRM_TOOLS, PRM_TOOL_NAMES, executePrmTool } from './prm.js';
 import {
   countDatabase, hasPermission, updateImportTargeting, positiveId, resolveListTarget,
-  runDatabase, runSalesNavigator, usableLinkedInAccount, lookupLinkedinLocations, resolveLinkedinLocations,
+  runDatabase, runSalesNavigator, usableLinkedInAccount, lookupLinkedinLocations, resolveLinkedinLocations, linkedinGenerationFailure,
 } from './import-targeting.js';
 /**
  * AI tools (OpenAI-compatible function schemas) + their executor.
@@ -910,7 +910,7 @@ export async function executeTool(name, argsRaw, auth, context = {}) {
 
         const gen = await generatePeoplesSearchUrl(auth, filters);
         const url = gen.ok ? gen.data?.linkedin_url : undefined;
-        if (!url) return cap({ error: "génération de l'URL de recherche LinkedIn échouée" });
+        if (!url) return cap(linkedinGenerationFailure(gen, 'LinkedIn'));
         const ext = await linkedinExtract(auth, "extract-peoples-search", {
           linkedin_account_id: accountId,
           ...target.payload,
