@@ -6,7 +6,7 @@ import { CONTACT_COPY_FILTER_SCHEMA, copyContactsToList } from './contact-copy.j
 import { PRM_TOOLS, PRM_TOOL_NAMES, executePrmTool } from './prm.js';
 import {
   countDatabase, hasPermission, updateImportTargeting, positiveId, resolveListTarget,
-  runDatabase, runSalesNavigator, usableLinkedInAccount,
+  runDatabase, runSalesNavigator, usableLinkedInAccount, lookupLinkedinLocations, resolveLinkedinLocations,
 } from './import-targeting.js';
 /**
  * AI tools (OpenAI-compatible function schemas) + their executor.
@@ -20,7 +20,6 @@ import {
   getMe,
   listDataFields,
   listLinkedinAccounts,
-  searchLinkedinLocations,
   generatePeoplesSearchUrl,
   linkedinExtract,
   generateGoogleMapsUrls,
@@ -72,6 +71,16 @@ export const AI_TOOLS = [
   DOCUMENT_TOOL,
   ...EXTENDED_TOOLS,
   ...PRM_TOOLS,
+  {
+    type: 'function',
+    function: {
+      name: 'search_linkedin_locations',
+      description: 'Recherche les vraies localisations LinkedIn et leurs noms français/anglais, pour LinkedIn classique et Sales Navigator. Lecture seule : aucun lancement ni création. À utiliser pour vérifier la zone avant de proposer la validation ; demander de choisir si plusieurs lieux différents correspondent.',
+      parameters: { type: 'object', additionalProperties: false, required: ['name'], properties: {
+        name: { type: 'string', description: 'Ville, région ou pays demandé, 120 caractères maximum.' },
+      } },
+    },
+  },
   {
     type: 'function',
     function: {
@@ -425,6 +434,7 @@ export const TOOL_LABELS = {
   list_prm_nurturings: "Séquences de nurturing",
   run_google_maps_targeting: "Ciblage Google Maps",
   update_targeting: 'Mise à jour de la cible',
+  search_linkedin_locations: 'Recherche des localisations LinkedIn',
   count_database_targeting: 'Comptage',
   run_database_targeting: 'Base Magileads',
   run_sales_navigator_targeting: 'Ciblage Sales Navigator',
@@ -521,6 +531,7 @@ export async function executeTool(name, argsRaw, auth, context = {}) {
     // Documents are already validated and sanitized, and transmitted as a card.
     // Do not truncate their contents into a preview that cannot be downloaded.
     if (name === 'create_document') return JSON.stringify(createDocument(args));
+    if (name === 'search_linkedin_locations') return cap(await lookupLinkedinLocations(args.name, auth));
     if (name === 'copy_contacts_to_list') return cap(await copyContactsToList(args, auth, context), 32000);
     if (name === 'update_targeting') {
       context.targeting = updateImportTargeting(args, context.targeting);
@@ -876,28 +887,15 @@ export async function executeTool(name, argsRaw, auth, context = {}) {
         if (target.error) return cap(target);
         const maxResults = Math.min(Math.max(Math.trunc(Number(args.max_results)) || 100, 1), 1000);
 
-        // The location API is FRENCH-locale and returns fuzzy GLOBAL matches, so pick
-        // the BEST one (exact name, else the broadest = fewest commas) — never blindly
-        // the first one ("London" resolves to London, Canada!).
+        // Share the verified bilingual resolution with Sales Navigator.
+        // Ambiguous places require a choice; an API error is not an unknown place.
         let locations = [];
         let resolvedLocation;
         if (typeof args.location === "string" && args.location.trim()) {
-          const q = args.location.trim();
-          const loc = await searchLinkedinLocations(auth, q);
-          const cands = loc.ok ? loc.data?.locations ?? [] : [];
-          if (!cands.length) {
-            // Never silently launch a location-less (worldwide) search.
-            return cap({
-              error: `Localisation « ${q} » introuvable. Demande à l'utilisateur de préciser, de préférence en FRANÇAIS (ex. « Royaume-Uni », « Londres », « Paris », « France »). Évite les abréviations comme « UK ».`,
-            });
-          }
-          const nm = (l) => (l.name_fr || l.name_en || "").trim();
-          const ql = q.toLowerCase();
-          const exact = cands.find((c) => nm(c).toLowerCase() === ql);
-          const best =
-            exact ?? [...cands].sort((a, b) => nm(a).split(",").length - nm(b).split(",").length)[0];
-          locations = [best.id];
-          resolvedLocation = nm(best) || String(best.id);
+          const resolved = await resolveLinkedinLocations([args.location.trim()], auth);
+          if (resolved.error) return cap(resolved);
+          locations = resolved.locations.map(item => item.id);
+          resolvedLocation = resolved.locations[0]?.used;
         }
 
         const filters = {};

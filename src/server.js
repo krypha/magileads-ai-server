@@ -60,6 +60,7 @@ const MAX_BODY_BYTES = 8_000_000;
 const RATE_LIMIT_PER_MIN = Number(process.env.RATE_LIMIT_PER_MIN) || 20;
 const IMPORT_CONTEXT_PREFIX = '[Contexte : je suis sur la page de création de liste';
 const IMPORT_READ_TOOLS = new Set([
+  'search_linkedin_locations',
   'create_document',
   'update_targeting', 'count_database_targeting', 'ask_linkedin_account',
   'list_contact_lists', 'ask_contact_list', 'get_contact_list', 'list_linkedin_accounts', 'get_account_overview',

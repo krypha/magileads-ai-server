@@ -260,6 +260,53 @@ function salesFingerprint(raw) {
   return `${url.pathname}?${url.searchParams}`;
 }
 
+/** Read-only lookup, also used before a launch so API failures are not mistaken for unknown places. */
+export async function lookupLinkedinLocations(name, auth) {
+  if (typeof name !== 'string' || !name.trim() || name.trim().length > 120) return { error: 'Précise une localisation (120 caractères maximum).' };
+  const requested = name.trim();
+  const response = await searchLinkedinLocations(auth, requested);
+  if (!response.ok) return {
+    error: 'La recherche des localisations LinkedIn est indisponible pour ce compte. Ne présente pas cette erreur comme une ville ou une région introuvable.',
+    error_key: response.errorKey ?? 'linkedin_locations_unavailable', status_code: response.status,
+  };
+  if (!Array.isArray(response.data?.locations)) return { error: 'Réponse de localisations LinkedIn invalide.', error_key: 'invalid_locations_response' };
+  return { requested, locations: response.data.locations.flatMap(item => {
+    const id = positiveId(item?.id);
+    if (!id) return [];
+    const name_fr = typeof item.name_fr === 'string' ? item.name_fr.trim() : null;
+    const name_en = typeof item.name_en === 'string' ? item.name_en.trim() : null;
+    return name_fr || name_en ? [{ id, name_fr, name_en }] : [];
+  }).slice(0, 50) };
+}
+
+const locationKey = value => fold(value).replace(/[\s\u00a0\u202f\u002d\u2010-\u2015]+/g, ' ').trim();
+const locationNames = item => [item.name_fr, item.name_en].filter(Boolean);
+
+/** Both engines resolve the same geographic IDs; never pick the first fuzzy hit. */
+export async function resolveLinkedinLocations(requestedNames, auth) {
+  const locations = [];
+  for (const requested of requestedNames) {
+    const lookup = await lookupLinkedinLocations(requested, auth);
+    if (lookup.error) return lookup;
+    const candidates = [...new Map(lookup.locations.map(item => [item.id, item])).values()];
+    const key = locationKey(requested);
+    const exact = candidates.filter(item => locationNames(item).some(name => locationKey(name) === key));
+    const qualified = candidates.filter(item => locationNames(item).some(name => locationKey(name.split(',')[0]) === key));
+    const matches = exact.length ? exact : qualified;
+    if (matches.length !== 1) return {
+      error: matches.length || candidates.length
+        ? `Précise la localisation « ${requested} » parmi les lieux réellement proposés ; ne choisis pas une autre zone automatiquement.`
+        : `Aucune localisation LinkedIn trouvée pour « ${requested} ».`,
+      error_key: candidates.length ? 'linkedin_location_ambiguous' : 'linkedin_location_not_found',
+      requested,
+      candidates: (matches.length ? matches : candidates).slice(0, 10).map(item => ({ id: item.id, name: item.name_fr || item.name_en })),
+    };
+    const chosen = matches[0];
+    locations.push({ requested, used: chosen.name_fr || chosen.name_en, id: chosen.id });
+  }
+  return { locations };
+}
+
 export async function runSalesNavigator(args, auth, profile) {
   if (!hasPermission(profile, 'accessSearchAI')) return { error: 'Recherche Sales Navigator non autorisée pour ce compte.' };
   const accountId = positiveId(args.linkedin_account_id);
@@ -280,17 +327,10 @@ export async function runSalesNavigator(args, auth, profile) {
   if (!requestedLocations.length || !(titles.length || companies.length || requestedIndustries.length || words(args.company_head_counts, 6).length || words(args.seniority_levels, 6).length)) {
     return { error: 'Précise une zone et au moins un critère professionnel pour Sales Navigator.' };
   }
-  const locations = [], locationsResolved = [];
-  for (const requested of requestedLocations) {
-    const response = await searchLinkedinLocations(auth, requested);
-    const candidates = response.ok && Array.isArray(response.data?.locations) ? response.data.locations : [];
-    const label = item => (item.name_fr || item.name_en || '').trim();
-    const exact = candidates.find(item => fold(label(item)) === fold(requested));
-    const chosen = exact ?? (candidates.length === 1 ? candidates[0] : null);
-    if (!chosen || !positiveId(chosen.id)) return { error: `Localisation « ${requested} » introuvable ou ambiguë sur LinkedIn.` };
-    locations.push(String(chosen.id));
-    locationsResolved.push({ requested, used: label(chosen), id: chosen.id });
-  }
+  const resolved = await resolveLinkedinLocations(requestedLocations, auth);
+  if (resolved.error) return resolved;
+  const locationsResolved = resolved.locations;
+  const locations = locationsResolved.map(item => String(item.id));
   const ignored = [];
   const payload = { current_titles: titles, locations, current_companies: companies };
   for (const [key, values, mapper] of [
