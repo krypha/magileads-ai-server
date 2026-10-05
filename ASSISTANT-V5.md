@@ -2,11 +2,99 @@
 
 ## Périmètre
 
-Interface v5 et serveur autonome `D:/works/magileads-ai-server`. Aucun fichier du PRM modifié par ce chantier. Administration, facturation et gestion des accès hors périmètre, conformément au choix utilisateur.
+Interface v5 et serveur autonome `D:/works/magileads-ai-server`. Administration, facturation et gestion des accès hors périmètre, conformément au choix utilisateur.
 
 Le serveur conserve les outils de lecture/ciblage existants et ajoute un catalogue explicite de 110 opérations commerciales, consulté avec `discover_operations` puis exécuté avec `run_operation`. Les imports et uploads passent par `open_commercial_form` ; la connexion email utilise `connect_email`. Les formulaires prennent le relais du chat. Ce n’est pas un proxy arbitraire vers toutes les routes de l’API.
 
 ## Comportement
+
+### PRM : colonnes et comptages exacts
+
+La bulle PRM transmet uniquement sur le dernier message le propriétaire du
+tableau ouvert, ses colonnes visibles et son filtre courant :
+
+```text
+[Screen context from the app, not written by the user]
+PRM context: {"user_id":391,"owner_name":"Iris","columns":[{"key":"9220","name":"My column","system":false}],"exclude_custom":true,"filter":null}
+```
+
+Les permissions et les propriétaires accessibles sont toujours revérifiés via
+le jeton Magileads de l'appelant et `/prm/list`. Le contexte de page ne donne
+aucun droit supplémentaire. Un PRM partagé ne doit jamais utiliser les colonnes
+personnalisées de l'opérateur : elles viennent du propriétaire dans `/prm/list`,
+si elles y sont exposées. Sinon, l'outil signale la limite.
+
+Quatre outils de lecture sont disponibles :
+
+```ts
+list_prm_pipelines({});
+list_prm_statuses({ user_id?: number });
+count_prm_contacts({
+  user_id?: number;           // PRM ouvert, sinon compte connecté
+  column?: string;           // nom réel, résolu et vérifié côté serveur
+  custom_status?: number;    // ID réel de colonne personnalisée
+  status?: string;           // code système réel
+  filter?: PrmFilter;
+  entire_prm?: boolean;      // ignorer le filtre de page si explicitement demandé
+});
+query_prm_contacts({
+  // mêmes champs que count_prm_contacts
+  search?: string;           // any_datafield contains, au moins 3 caractères
+  limit?: number;            // défaut 10, maximum 25
+  next_page?: string;        // curseur Magileads, même origine et même propriétaire
+});
+```
+
+`PrmFilter` est un groupe `{mode:"and"|"or", values:[...]}` de conditions
+`{field_name:string,type:string,value:string}` ou de groupes imbriqués.
+Les champs admis sont `any_datafield`, `status`, `custom_status`, `is_positive`,
+`new_reply`, `new_first_reply`, `in_active_programmation`, `score`,
+`person_in_charge`, `tag_id`, `created_on`, `status_changed_date`,
+`last_reply_or_status_changed_date`, `last_call`, `programmation_id`,
+`workflow_id`, `contact_list_id`, `id`. Les identifiants numériques des champs
+de listes de contacts ne conviennent pas au PRM. Les trois indicateurs
+`new_reply`, `new_first_reply`, `in_active_programmation` prennent `equals` avec
+`"1"` ou `"0"`. Les opérateurs sont `equals`, `not_equals`, `contains`,
+`not_contains`, `does_exist`, `does_not_exist`, `more_than`,
+`more_or_equal_than`, `less_than`, `less_or_equal_than`.
+
+Pour une colonne personnalisée, le filtre utilise `custom_status equals ID`.
+Pour une colonne système, il utilise `status equals CODE` et exclut les contacts
+déjà classés dans une colonne personnalisée lorsque le tableau le fait aussi.
+Les filtres de page et les critères demandés sont joints en AND en préservant
+les groupes OR. Une colonne inconnue ou ambiguë est refusée avant de lire des
+prospects ; aucun comptage global de remplacement.
+
+`count_prm_contacts` appelle `GET /prm/contacts/user/{user_id}` avec
+`options={per_page:1,filter:...}` et renvoie :
+
+```ts
+{
+  user_id: number; owner_name: string;
+  column: {key:string,system:boolean,name:string} | null;
+  filter: PrmFilter | null; count: number;
+}
+```
+
+`count` est le `number_of_results` filtré, jamais la longueur de `results`.
+Zéro reste zéro ; un total absent produit une erreur. La réponse utilisateur
+est une phrase avec le nombre et le nom de colonne. Aucun détail de prospect
+n'est transmis au modèle pour un comptage. La lecture nominative n'est utilisée
+que si elle est demandée et sépare explicitement total et échantillon.
+Ces outils ne produisent ni `assistant.card` ni `assistant.changed` et ne font
+aucune mutation. Le front masque aussi les anciennes cartes `kind:"leads"`.
+
+Vérifié le 5 octobre 2026 : schémas du Swagger déployé, tests d'outils
+(comptage supérieur à 25, zéro, ambiguïté, propriétaires partagés, filtres,
+pagination, permissions) et flux HTTP/SSE avec API et modèle simulés.
+Une conversation réelle depuis la bulle locale, avec DeepSeek Pro et l'API
+Magileads de production, a retourné les totaux du PRM d'Iris RAS : `test = 2`,
+`Openers = 261`, `Positives d = 0`, identiques au tableau, sans carte de
+prospect. Une lecture nominative explicitement demandée des deux prospects de
+`test` a aussi retourné les deux noms exacts, en texte sans carte. Aucune
+opération d'écriture n'a été demandée. Le serveur IA corrigé
+était local, pas encore déployé ; les PRM partagés, filtres imbriqués et curseurs
+ont été testés avec fixtures, pas avec une interrogation client réelle.
 
 ### Réponses orientées utilisateur
 
@@ -53,8 +141,9 @@ data: {"kind":"lists","items":[{"id":69964,"name":"DAF Paris","contacts":36,"ema
 
 Le champ `purpose` vaut `"selection"` ou `"created"`. Seules les cartes de
 listes avec `purpose:"selection"` sont affichées par v5 ; les anciennes cartes
-sans ce champ sont masquées aussi dans l’historique. Les autres types de cartes
-restent affichés. Le texte n’est pas retiré au profit d’une carte masquée.
+sans ce champ sont masquées aussi dans l’historique. Les cartes de prospects
+PRM sont également masquées ; les autres types restent affichés. Le texte
+n’est pas retiré au profit d’une carte masquée.
 
 Les outils de copie et de ciblage conservent le contrat d’import :
 `tool.progress` avec `creates_list:true`, puis `assistant.card` avec

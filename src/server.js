@@ -31,6 +31,7 @@ import { redactHiddenAuditText } from './assistant-policy.js';
 import { IncludedWorkload, SCOPE_TOOL, scopeConversation, scopeDecision, scopeRequestOptions } from './request-policy.js';
 import { usageLimitsEnabled } from './usage-policy.js';
 import { documentReceipt } from './documents.js';
+import { readPrmPageContext } from './prm.js';
 
 const PORT = Number(process.env.PORT) || 8787;
 const AI_API_KEY = process.env.AI_API_KEY;
@@ -375,7 +376,8 @@ async function handleChat(req, res, cors) {
   let failed = false;
   let launchAttempted = false;
   let targetingReady = false;
-  const toolContext = { profile, enforceUsageLimits, copyAttempts: new Set() };
+  const toolContext = { profile, enforceUsageLimits, copyAttempts: new Set(),
+    prmPage: readPrmPageContext(clientMessages.at(-1).content) };
 
   /** Ouvre le flux upstream, en basculant sur le candidat suivant si besoin. */
   async function openUpstream(round, scopeCheck = false, finalAnswer = false) {

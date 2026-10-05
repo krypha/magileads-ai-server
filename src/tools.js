@@ -3,6 +3,7 @@ import { usageLimitsEnabled } from './usage-policy.js';
 import { createDocument, DOCUMENT_TOOL } from './documents.js';
 import { EXTENDED_TOOLS, executeExtended } from './operations.js';
 import { CONTACT_COPY_FILTER_SCHEMA, copyContactsToList } from './contact-copy.js';
+import { PRM_TOOLS, PRM_TOOL_NAMES, executePrmTool } from './prm.js';
 import {
   countDatabase, hasPermission, normalizeTargeting, positiveId, resolveListTarget,
   runDatabase, runSalesNavigator, usableLinkedInAccount,
@@ -32,9 +33,6 @@ import {
   listProgrammationsStats,
   getProgrammationStats,
   getWorkflow,
-  listPrmStatuses,
-  listPrmCustomStatuses,
-  listPrmContacts,
   getPrmContact,
   listPrmNurturings,
 } from "./magileads.js";
@@ -73,6 +71,7 @@ const CONTACT_LIST_QUERY_SCHEMA = {
 export const AI_TOOLS = [
   DOCUMENT_TOOL,
   ...EXTENDED_TOOLS,
+  ...PRM_TOOLS,
   {
     type: 'function',
     function: {
@@ -313,29 +312,6 @@ export const AI_TOOLS = [
   {
     type: "function",
     function: {
-      name: "list_prm_statuses",
-      description: "Statuts du pipeline PRM (CRM) : par défaut + personnalisés.",
-      parameters: { type: "object", properties: {} },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "query_prm_contacts",
-      description:
-        "Prospects du PRM (pipeline CRM) : liste avec statut, réponses. Recherche libre optionnelle. Plafonné à 25.",
-      parameters: {
-        type: "object",
-        properties: {
-          search: { type: "string", description: "Recherche plein-texte (optionnel)." },
-          page: { type: "number", description: "Page (défaut 1)." },
-        },
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
       name: "get_prm_contact",
       description: "Fiche détaillée d'un prospect PRM (statut, appels, réponses, campagnes) par son id.",
       parameters: {
@@ -442,6 +418,8 @@ export const TOOL_LABELS = {
   preview_contact_selection: "Comptage de la sélection",
   copy_contacts_to_list: 'Copie des contacts filtrés',
   list_prm_statuses: "Statuts du pipeline",
+  list_prm_pipelines: "Lecture des PRM accessibles",
+  count_prm_contacts: "Comptage des prospects PRM",
   query_prm_contacts: "Lecture des prospects",
   get_prm_contact: "Fiche prospect",
   list_prm_nurturings: "Séquences de nurturing",
@@ -545,6 +523,7 @@ export async function executeTool(name, argsRaw, auth, context = {}) {
     if (name === 'create_document') return JSON.stringify(createDocument(args));
     if (name === 'copy_contacts_to_list') return cap(await copyContactsToList(args, auth, context), 32000);
     if (name === 'update_targeting') return cap(normalizeTargeting(args));
+    if (PRM_TOOL_NAMES.has(name)) return cap(await executePrmTool(name, args, auth, context), 12000);
     if (name === 'count_database_targeting' || name === 'run_database_targeting' || name === 'run_sales_navigator_targeting') {
       const me = context.profile ? { ok: true, data: { user_profile: context.profile } } : await getMe(auth);
       if (!me.ok) return cap({ error: 'profil indisponible' });
@@ -779,33 +758,6 @@ export async function executeTool(name, argsRaw, auth, context = {}) {
             checkpoint_required: a.checkpoint_required,
             sales_navigator: a.is_sales_navigator_account,
             last_use: a.last_use,
-          })),
-        });
-      }
-
-      case "list_prm_statuses": {
-        const [def, cust] = await Promise.all([listPrmStatuses(auth), listPrmCustomStatuses(auth)]);
-        return cap({ default: def.ok ? def.data : null, custom: cust.ok ? cust.data : null });
-      }
-
-      case "query_prm_contacts": {
-        const search = typeof args.search === "string" ? args.search.trim() : "";
-        const options = { per_page: 25 };
-        if (search) options.query = search;
-        const r = await listPrmContacts(auth, options);
-        if (!r.ok || !r.data) return cap({ error: "PRM indisponible" });
-        const env = r.data;
-        const rows = Array.isArray(env.results) ? env.results : [];
-        return cap({
-          total: Number(env.number_of_results ?? rows.length) || rows.length,
-          contacts: rows.slice(0, 25).map((c) => ({
-            id: c.id,
-            first_name: c.first_name ?? c.properties?.find(p => p.identifier === "%first_name%" || p.identifier === "first_name")?.value,
-            last_name: c.last_name ?? c.properties?.find(p => p.identifier === "%last_name%" || p.identifier === "last_name")?.value,
-            status: c.status,
-            custom_status: c.custom_status,
-            is_positive: c.is_positive,
-            new_reply: c.new_reply,
           })),
         });
       }

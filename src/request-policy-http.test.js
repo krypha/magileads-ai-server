@@ -4,6 +4,9 @@ import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { sendScopeFixture } from '../test/scope-fixture.mjs';
+import { AI_TOOLS } from './tools.js';
+import { buildSystemPrompt } from './prompt.js';
+import { RequestBudget } from './included-budget.js';
 
 test('shared-key scope and cost gates block requests while personal keys bypass them', { timeout: 20000 }, async () => {
   let scenario = 'off_topic';
@@ -50,11 +53,17 @@ test('shared-key scope and cost gates block requests while personal keys bypass 
   const base = `http://127.0.0.1:${api.address().port}`;
   const reservation = http.createServer(); reservation.listen(0, '127.0.0.1'); await once(reservation, 'listening');
   const port = reservation.address().port; await new Promise(resolve => reservation.close(resolve));
+  // Permit the initial catalogue once; reject the expanded results. Keep this
+  // fixture independent of the growing tool schemas (including PRM filters).
+  const firstCallBudget = new RequestBudget(0.10).reserve([
+    { role: 'system', content: buildSystemPrompt({ id: 391, level: 'user' }) },
+    { role: 'user', content: 'Test de politique' },
+  ], AI_TOOLS, 2048).amount + 0.001;
   const child = spawn(process.execPath, [new URL('./server.js', import.meta.url).pathname.replace(/^\/(\w:)/, '$1')], {
     env: { ...process.env, PORT: String(port), MAGILEADS_API_BASE: base, AI_API_URL: base, OPENAI_API_URL: base,
       AI_TEST_UNLIMITED_UNTIL: '',
       AI_API_KEY: 'platform-key', AI_INCLUDED_API_KEY: 'capped-key', AI_MODEL: 'fixture',
-      AI_MODEL_FREE: 'misconfigured/paid,fixture/model:free', AI_INCLUDED_MAX_REQUEST_USD: '0.015' },
+      AI_MODEL_FREE: 'misconfigured/paid,fixture/model:free', AI_INCLUDED_MAX_REQUEST_USD: String(firstCallBudget) },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   const chat = async (options = {}, token = 'user-token') => {

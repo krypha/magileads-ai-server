@@ -176,6 +176,8 @@ export const getWorkflow = (auth, workflowId) => request(`/workflows/${workflowI
 
 export const listPrmStatuses = (auth) => request("/prm/status", { auth });
 export const listPrmCustomStatuses = (auth) => request("/prm/status/custom", { auth });
-export const listPrmContacts = (auth, options) => request(`/prm/contacts${optionsQuery(options)}`, { auth });
+export const listPrmPipelines = (auth) => request('/prm/list', { auth });
+export const listPrmContacts = (auth, options, userId) =>
+  request(`${userId == null ? '/prm/contacts' : `/prm/contacts/user/${userId}`}${optionsQuery(options)}`, { auth });
 export const getPrmContact = (auth, id) => request(`/prm/contact/${id}`, { auth });
 export const listPrmNurturings = (auth) => request("/prm/nurturings", { auth });
