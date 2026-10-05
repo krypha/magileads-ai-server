@@ -28,7 +28,7 @@ import { KEY_TYPE_FOR_PROVIDER, MODEL_PROVIDERS, listProviderModels, readModelSt
 import { approvedRunTool, approvedToolArgs, parseImportApproval } from './import-approval.js';
 import { checkIncludedBudget, sharedPromptTooLarge, RequestBudget, INCLUDED_MAX_PRICE, FREE_MAX_PRICE } from './included-budget.js';
 import { redactHiddenAuditText } from './assistant-policy.js';
-import { IncludedWorkload, SCOPE_TOOL, scopeConversation, scopeDecision, scopeRequestOptions } from './request-policy.js';
+import { IncludedWorkload } from './request-policy.js';
 import { usageLimitsEnabled } from './usage-policy.js';
 import { documentReceipt } from './documents.js';
 import { readPrmPageContext } from './prm.js';
@@ -380,24 +380,23 @@ async function handleChat(req, res, cors) {
     prmPage: readPrmPageContext(clientMessages.at(-1).content) };
 
   /** Ouvre le flux upstream, en basculant sur le candidat suivant si besoin. */
-  async function openUpstream(round, scopeCheck = false, finalAnswer = false) {
+  async function openUpstream(round, finalAnswer = false) {
     while (modelIdx < candidates.length) {
       const model = candidates[modelIdx];
       const timeout = callTimeoutMs > 0 ? setTimeout(() => ac.abort(), callTimeoutMs) : undefined;
       let upstream;
       try {
-        const availableTools = scopeCheck ? [SCOPE_TOOL] : !importMode
+        const availableTools = !importMode
           ? AI_TOOLS.filter(tool => !IMPORT_ONLY_TOOLS.has(tool.function.name))
           : AI_TOOLS.filter(tool => IMPORT_READ_TOOLS.has(tool.function.name) ||
             (approval && targetingReady && !launchAttempted && IMPORT_RUN_TOOLS.has(tool.function.name) &&
               (!approvedRunTool(approval) || tool.function.name === approvedRunTool(approval))));
-        const toolChoice = scopeCheck ? { type: 'function', function: { name: SCOPE_TOOL.function.name } } : finalAnswer ? 'none' : importMode && round === 0
+        const toolChoice = finalAnswer ? 'none' : importMode && round === 0
           ? { type: 'function', function: { name: 'update_targeting' } }
           : 'auto';
-        const messages = scopeCheck ? scopeConversation(clientMessages) : convo;
-        const scopeOptions = scopeRequestOptions(provider, model);
+        const messages = convo;
         const maxTokens = enforceUsageLimits
-          ? scopeCheck ? scopeOptions.maxTokens : included ? 2_048 : undefined
+          ? included ? 2_048 : undefined
           : provider === 'anthropic' ? anthropicMaxTokens : undefined;
         const maxPrice = cappedIncluded ? candidateTiers[modelIdx] === 'free' ? FREE_MAX_PRICE : INCLUDED_MAX_PRICE : undefined;
         if (requestBudget?.exhausted) {
@@ -410,7 +409,7 @@ async function handleChat(req, res, cors) {
           return { error: 'request_budget_exceeded' };
         }
         const request = upstreamRequest(provider, candidateKeys?.[modelIdx] || providerKey, model, messages, ac.signal,
-          { tools: availableTools, toolChoice, maxTokens, maxPrice, disableReasoning: scopeCheck && scopeOptions.disableReasoning });
+          { tools: availableTools, toolChoice, maxTokens, maxPrice });
         upstream = await fetch(request.url, request.options);
         if (upstream.ok && upstream.body) return { upstream, model, reservation, timeout };
       } catch {
@@ -446,29 +445,14 @@ async function handleChat(req, res, cors) {
   }
 
   try {
-    // MagIA alone needs the shared-credit topic gate. A personal key can ask
-    // anything, including questions unrelated to Magileads.
-    if (!personalKey) {
-      const checked = await openUpstream(0, true);
-      let decision = null;
-      if (!checked.error) {
-        try { decision = scopeDecision((await readOpened(checked, () => {})).calls); } catch { /* Fail closed. */ }
-      }
-      if (checked.error || !decision) {
-        fail(checked.error === 'request_budget_exceeded' ? checked.error : 'scope_check_unavailable');
-      } else if (decision === 'off_topic') {
-        fail('off_topic');
-      } else if (cappedIncluded && decision === 'broad_campaign_audit') {
-        fail('request_too_broad');
-      }
-    }
+    // All assistant surfaces answer without a preliminary topic classifier.
     chatRounds: for (let round = 0; !closed && !failed; round++) {
       const finalAnswer = round >= maxRounds;
       if (finalAnswer) convo.push({ role: 'system', content:
         'Termine maintenant par le résultat demandé à partir des données réellement obtenues. Aucun nouvel outil n’est autorisé. ' +
         'Si l’analyse est incomplète, présente ce qui est établi et explique seulement la limite qui change réellement la conclusion, en langage métier. ' +
         'N’énumère pas les mesures absentes, les outils utilisés ou les étapes internes ; ne prétends pas avoir terminé les croisements non calculés et n’annonce pas de nouvelle recherche.' });
-      const opened = await openUpstream(round, false, finalAnswer);
+      const opened = await openUpstream(round, finalAnswer);
       if (opened.error) {
         if (!closed) {
           failed = true;

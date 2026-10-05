@@ -4,7 +4,6 @@ import { AI_TOOLS, executeTool } from '../src/tools.js';
 import { cardsForTool } from '../src/cards.js';
 import { buildSystemPrompt } from '../src/prompt.js';
 import { upstreamRequest, readModelStream } from '../src/model-providers.js';
-import { SCOPE_TOOL, scopeConversation, scopeDecision, scopeRequestOptions } from '../src/request-policy.js';
 
 const key = process.env.AI_API_KEY, model = process.env.COPY_TEST_MODEL || process.env.AI_MODEL;
 if (!key || !model) throw Error('AI_API_KEY and AI_MODEL are required');
@@ -51,13 +50,9 @@ async function call(messages, selectedTools, options = {}) {
   return readModelStream(response.body, () => {});
 }
 async function run(messages, pageContext = false) {
-  const scope = await call(scopeConversation(messages), [SCOPE_TOOL], {
-    toolChoice: { type: 'function', function: { name: SCOPE_TOOL.function.name } }, ...scopeRequestOptions('openrouter', model),
-  });
-  if (scopeDecision(scope.calls) !== 'allow') throw Error('scope_not_allowed');
   const conversation = [{ role: 'system', content: buildSystemPrompt(profile, { pageContext }) }, ...messages];
   const context = { profile, copyAttempts: new Set() }, results = [], cards = [], toolNames = [];
-  let cost = scope.usage?.cost ?? 0;
+  let cost = 0;
   for (let round = 0; round < 6; round++) {
     const answer = await call(conversation, tools);
     cost += answer.usage?.cost ?? 0;

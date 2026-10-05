@@ -4,7 +4,6 @@ import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { usageLimitsEnabled } from './usage-policy.js';
-import { sendScopeFixture } from '../test/scope-fixture.mjs';
 
 test('uncapped testing requires a future deployment expiry and expires automatically', () => {
   const now = Date.parse('2026-09-29T12:00:00Z');
@@ -15,7 +14,7 @@ test('uncapped testing requires a future deployment expiry and expires automatic
   assert.equal(usageLimitsEnabled(now + 3600_000, '2026-09-29T13:00:00Z'), true);
 });
 
-test('temporary tests preserve long prompts and output, lift cost/workload caps, and retain scope/auth', { timeout: 20000 }, async () => {
+test('temporary tests preserve long prompts and output, lift cost/workload caps, and retain authentication', { timeout: 20000 }, async () => {
   const calls = [];
   const campaignReads = [];
   let budgetChecks = 0;
@@ -44,10 +43,7 @@ test('temporary tests preserve long prompts and output, lift cost/workload caps,
         assert.ok(!Object.hasOwn(body, 'max_completion_tokens'));
         assert.ok(!body.provider?.max_price);
         assert.ok(!raw.includes('user-token') && !raw.includes('owned-key'));
-        if (body.tool_choice?.function?.name === 'classify_magileads_request') {
-          const latest = JSON.parse(body.messages.at(-1).content).latest_request;
-          return sendScopeFixture(body, res, latest.includes('Amérique') ? 'off_topic' : 'broad_campaign_audit');
-        }
+        assert.notEqual(body.tool_choice?.function?.name, 'classify_magileads_request');
         const toolsDone = body.messages.some(message => message.role === 'tool');
         const audit = body.messages.at(-1).role === 'user' && body.messages.at(-1).content.startsWith('Audite toutes mes campagnes');
         const delta = audit && !toolsDone ? { tool_calls: Array.from({ length: 14 }, (_, index) => ({
@@ -109,7 +105,8 @@ test('temporary tests preserve long prompts and output, lift cost/workload caps,
     assert.doesNotMatch(personal, /event: assistant.error/); // No per-minute test throttle.
     assert.ok(calls.some(call => call.key === 'Bearer owned-key'));
     const offTopic = await chat([{ role: 'user', content: 'Qui a découvert l’Amérique ?' }]);
-    assert.match(offTopic, /"code":"off_topic"/);
+    assert.doesNotMatch(offTopic, /event: assistant.error/);
+    assert.ok(offTopic.includes(answer));
     const anonymous = await fetch(`http://127.0.0.1:${port}/ai/chat`, { method: 'POST', body: '{}' });
     assert.equal(anonymous.status, 401);
   } finally {

@@ -3,11 +3,10 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { sendScopeFixture } from '../test/scope-fixture.mjs';
 
 test('a personal key can answer off-topic requests with full history and more than six tool rounds', { timeout: 20000 }, async () => {
   const personalRequests = [];
-  let sharedScopeCalls = 0;
+  let sharedModelCalls = 0;
   let providerError;
   const upstream = http.createServer(async (req, res) => {
     try {
@@ -20,8 +19,10 @@ test('a personal key can answer off-topic requests with full history and more th
         let raw = ''; for await (const chunk of req) raw += chunk;
         const body = JSON.parse(raw);
         if (req.headers.authorization === 'Bearer platform-key') {
-          sharedScopeCalls++;
-          return sendScopeFixture(body, res, 'off_topic');
+          sharedModelCalls++;
+          assert.notEqual(body.tool_choice?.function?.name, 'classify_magileads_request');
+          res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+          return res.end('data: {"choices":[{"delta":{"content":"Réponse libre avec MagIA."}}],"usage":{"cost":0.0002}}\n\ndata: [DONE]\n\n');
         }
         assert.equal(req.headers.authorization, 'Bearer personal-provider-key');
         assert.ok(!raw.includes('personal-provider-key'));
@@ -82,12 +83,12 @@ test('a personal key can answer off-topic requests with full history and more th
     assert.equal(personalRequests.at(-1).messages.at(-1).content, largeMessage);
     assert.match(personalRequests[0].messages[0].content, /réponds à toute demande/);
     assert.doesNotMatch(personalRequests[0].messages[0].content, /Refuse brièvement toute question indépendante/);
-    assert.equal(sharedScopeCalls, 0);
+    assert.equal(sharedModelCalls, 0);
 
     const shared = await chat([{ role: 'user', content: 'Qui a découvert l’Amérique ?' }]);
     assert.equal(shared.status, 200);
-    assert.match(await shared.text(), /"code":"off_topic"/);
-    assert.equal(sharedScopeCalls, 1);
+    assert.match(await shared.text(), /Réponse libre avec MagIA/);
+    assert.equal(sharedModelCalls, 1);
     const missingKey = await chat([latest], { provider: 'openai', openai_key_id: 99 });
     assert.equal(missingKey.status, 412);
   } finally {

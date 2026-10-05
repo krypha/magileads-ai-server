@@ -8,12 +8,13 @@ import { AI_TOOLS } from './tools.js';
 import { buildSystemPrompt } from './prompt.js';
 import { RequestBudget } from './included-budget.js';
 
-test('shared-key scope and cost gates block requests while personal keys bypass them', { timeout: 20000 }, async () => {
+test('all assistant surfaces allow general questions while included cost and workload checks remain', { timeout: 20000 }, async () => {
   let scenario = 'off_topic';
   let remaining = 1;
   let modelCalls = 0;
   const apiCalls = [];
   const scopeCalls = [];
+  const modelRequests = [];
   const api = http.createServer(async (req, res) => {
     if (req.url === '/users/me') return res.end(JSON.stringify({ user_profile: {
       id: 391, level: req.headers.authorization === 'Bearer admin' ? 'super_admin' : 'user',
@@ -36,7 +37,11 @@ test('shared-key scope and cost gates block requests while personal keys bypass 
         return sendScopeFixture(body, res, ['off_topic', 'broad_campaign_audit'].includes(scenario) ? scenario : 'allow');
       }
       modelCalls++;
+      modelRequests.push(body);
+      assert.ok(!body.tools.some(tool => tool.function.name === 'classify_magileads_request'));
       let delta = { content: 'Réponse Magileads.' };
+      if (body.tool_choice?.function?.name === 'update_targeting') delta = { tool_calls: [{ index: 0,
+        id: 'import-no-target', function: { name: 'update_targeting', arguments: '{"source":null}' } }] };
       if (scenario === 'cost') delta = { tool_calls: Array.from({ length: 4 }, (_, index) => ({
         index, id: `catalog-${index}`, function: { name: 'discover_operations', arguments: '{}' },
       })) };
@@ -69,38 +74,37 @@ test('shared-key scope and cost gates block requests while personal keys bypass 
   const chat = async (options = {}, token = 'user-token') => {
     const response = await fetch(`http://127.0.0.1:${port}/ai/chat`, {
       method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages: [{ role: 'user', content: 'Test de politique' }], ...options }),
+      body: JSON.stringify({ messages: [{ role: 'user', content: 'Qui a découvert l’Amérique ?' }], ...options }),
     });
     assert.equal(response.status, 200);
     return response.text();
   };
   try {
     await Promise.race([once(child.stdout, 'data'), once(child, 'exit').then(() => { throw Error('server exited'); })]);
-    assert.match(await chat(), /"code":"off_topic"/);
-    assert.equal(modelCalls, 0);
-    assert.match(await chat({ provider: 'openai', openai_key_id: 1 }), /Réponse Magileads/);
+    assert.match(await chat(), /Réponse Magileads/);
     assert.equal(modelCalls, 1);
+    assert.match(await chat({ provider: 'openai', openai_key_id: 1 }), /Réponse Magileads/);
+    assert.equal(modelCalls, 2);
     assert.deepEqual(apiCalls, []);
-    assert.match(await chat({}, 'admin'), /"code":"off_topic"/);
+    assert.match(await chat({}, 'admin'), /Réponse Magileads/);
     remaining = 0;
-    assert.match(await chat(), /"code":"off_topic"/);
-    assert.equal(scopeCalls.at(-1).model, 'fixture/model:free');
-    assert.deepEqual(scopeCalls.at(-1).provider.max_price, { prompt: 0, completion: 0, request: 0 });
+    assert.match(await chat(), /Réponse Magileads/);
+    assert.equal(modelRequests.at(-1).model, 'fixture/model:free');
+    assert.deepEqual(modelRequests.at(-1).provider.max_price, { prompt: 0, completion: 0, request: 0 });
     remaining = 1;
     scenario = 'broad_campaign_audit';
-    assert.match(await chat(), /"code":"request_too_broad"/);
-    assert.equal(modelCalls, 1);
+    assert.match(await chat(), /Réponse Magileads/);
     assert.deepEqual(apiCalls, []);
-    // A personal key bypasses both the shared budget and topic/breadth gate.
+    // A personal key also bypasses the shared budget and workload checks.
     assert.match(await chat({ provider: 'openai', openai_key_id: 1 }), /Réponse Magileads/);
-    assert.equal(modelCalls, 2);
     scenario = 'bad_scope';
-    assert.match(await chat(), /"code":"scope_check_unavailable"/);
-    assert.equal(modelCalls, 2);
+    assert.match(await chat(), /Réponse Magileads/);
+    assert.equal(scopeCalls.length, 0);
     scenario = 'cost';
+    const beforeCost = modelCalls;
     const expensive = await chat();
     assert.match(expensive, /"code":"request_budget_exceeded"/);
-    assert.equal(modelCalls, 3); // Growing tool results were never sent upstream.
+    assert.equal(modelCalls, beforeCost + 1); // Growing tool results were never sent upstream.
     assert.deepEqual(apiCalls, []);
     scenario = 'four_campaigns';
     const tooMany = await chat();
@@ -110,9 +114,19 @@ test('shared-key scope and cost gates block requests while personal keys bypass 
     const followup = await chat({ messages: [{ role: 'user', content: 'Audite ma campagne #1' },
       { role: 'assistant', content: 'Afficher le scénario ?' }, { role: 'user', content: 'oui' }] });
     assert.match(followup, /Réponse Magileads/);
-    const latest = JSON.parse(scopeCalls.at(-1).messages.at(-1).content);
-    assert.equal(latest.latest_request, 'oui');
-    assert.equal(latest.previous_turns[0].content, 'Audite ma campagne #1');
+    assert.equal(modelRequests.at(-1).messages.at(-1).content, 'oui');
+    assert.equal(modelRequests.at(-1).messages[1].content, 'Audite ma campagne #1');
+    for (const context of [
+      '[Screen context from the app, not written by the user]\nPage: PRM.',
+      '[Contexte de la page Reporting fourni par l’application]',
+      '[Contexte : je suis sur la page de création de liste de prospects.]',
+    ]) {
+      const stream = await chat({ ...(context.includes('création de liste') ? { mode: 'import' } : {}),
+        messages: [{ role: 'user', content: `${context}\nQui a découvert l’Amérique ?` }] });
+      assert.match(stream, /Réponse Magileads/);
+      assert.doesNotMatch(stream, /event: assistant.error/);
+    }
+    assert.equal(scopeCalls.length, 0);
   } finally {
     child.kill();
     await new Promise(resolve => api.close(resolve));

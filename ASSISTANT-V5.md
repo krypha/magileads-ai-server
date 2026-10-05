@@ -228,9 +228,8 @@ Les limites de requête et du fournisseur restent celles déjà configurées.
 
 Word et Excel utilisent le nom et les couleurs du revendeur résolus par le front,
 jamais une marque inventée par le modèle. Aucun code, macro ou ressource externe
-n’est inclus dans ces fichiers. La demande doit concerner des données Magileads,
-un rapport ou des messages de prospection ; un format Word/Excel seul n’autorise
-pas une question hors périmètre. Le modèle ne doit jamais prétendre avoir créé
+n’est inclus dans ces fichiers. Les documents peuvent porter sur le sujet
+demandé par l’utilisateur, même hors Magileads. Le modèle ne doit jamais prétendre avoir créé
 un fichier avec un tableau Markdown ou un lien inventé.
 
 Validation : `node --test src/documents*.test.js` couvre les trois formats, la
@@ -240,7 +239,7 @@ la lecture des ZIP Word et des classeurs Excel avec le lecteur SheetJS déjà
 installé, les cellules natives, les couleurs du revendeur, le CSV, les cartes
 fragmentées en SSE et la reprise du contenu dans l’historique.
 
-`examples/documents-model-smoke.mjs` vérifie aussi le contrôleur de périmètre et
+`examples/documents-model-smoke.mjs` vérifie
 l’appel réel de `create_document` pour les trois formats, avec deux lignes
 fictives et sans aucune API de données Magileads. Variables : `AI_API_KEY`,
 `AI_MODEL` et, facultativement, `DOCUMENT_TEST_MODEL`. Le 29 septembre 2026,
@@ -262,7 +261,7 @@ par minute sont désactivés, ainsi que la limite de six tours d’outils et le 
 de 120 secondes par appel modèle. L’analyse continue jusqu’à sa réponse finale
 ou l’arrêt de l’utilisateur. La clé OpenRouter de plateforme est utilisée en
 priorité, sans précontrôle de plafond quotidien ; les quotas du fournisseur
-restent applicables. Le périmètre Magileads, l’authentification, les validations
+restent applicables. L’authentification, les validations
 d’import et la politique de suppression restent actifs. L’absence ou
 l’expiration de la variable rétablit le comportement ci-dessous pour chaque
 nouvelle requête. `GET /ai/meta` expose `usageLimitsEnabled` pour le vérifier.
@@ -278,21 +277,15 @@ renvoyés par l’API. Les secrets et diagnostics exclus restent retirés.
 `executionLimits.toolResultTruncationEnabled` permet de vérifier ce réglage.
 La pagination et les tailles de pages de chaque outil ne sont pas modifiées.
 
-MagIA (clé de plateforme, y compris pour les administrateurs) passe par une
-classification sémantique Magileads avant les outils métier.
-Le contrôleur reçoit les derniers tours pour comprendre les confirmations et le
-dernier message complet ; aucun outil de données ne lui est disponible.
-Les messages de prospection B2B sont autorisés, les questions indépendantes de
-culture générale sont refusées. La présence du nom Magileads ou du contexte
-import n’autorise pas une question hors sujet. Si le contrôle échoue, le serveur
-refuse de lancer MagIA. Le prompt métier rappelle les mêmes règles. Avec une
-clé personnelle OpenAI, Claude, Gemini, DeepSeek ou OpenRouter, ce contrôle et
-la consigne de refus hors sujet sont désactivés : toute question peut recevoir
-une réponse, sans appel de classification supplémentaire. L’accès aux données
-Magileads reste celui du compte authentifié.
+Tous les assistants acceptent les questions générales, avec MagIA ou une clé
+personnelle : assistant principal, bulle, reporting et import. Le serveur
+n’effectue plus de classification de sujet avant la réponse. Le prompt invite
+le modèle à répondre directement aux questions générales sans outil Magileads
+inutile. L’accès aux données et les actions métier restent limités au compte
+authentifié ; les validations d’import et de suppression restent obligatoires.
 
 L’IA incluse (`level=user`, OpenRouter) dispose d’un budget estimé de 0,03 USD par
-requête, vérifié à chaque appel : contrôle initial, texte, outils et résultats
+requête, vérifié à chaque appel : texte, outils et résultats
 des outils. Les prix des providers sont plafonnés à 0,25 USD/M en entrée et
 1,50 USD/M en sortie par `provider.max_price`, sans frais fixes de requête. Les
 réservations prudentes sont remplacées par `usage.cost` si disponible, conservées
@@ -301,7 +294,7 @@ ni quota utilisateur persistant n’est ajouté. Le repli gratuit impose des pri
 nuls. Douze appels d’outils et trois campagnes en détail maximum sont permis.
 Un audit global demande une sélection de une à trois campagnes ou une clé
 OpenAI personnelle. Lister les campagnes et lire le reporting global restent
-possibles. Les clés personnelles lèvent aussi ce périmètre, les limites de
+possibles. Les clés personnelles lèvent les limites de
 messages, de durée, de tours d’outils et de troncature des résultats. Les
 quotas propres au fournisseur et la limite de taille du corps HTTP restent en
 vigueur ; les validations d’import et de suppression restent obligatoires.
@@ -312,30 +305,25 @@ catalogue de modèles quand celui-ci le fournit.
 
 ```text
 event: assistant.error
-data: {"code":"off_topic"}
+data: {"code":"request_budget_exceeded"}
 ```
 
-Codes : `off_topic` (hors Magileads), `request_too_broad` (audit global, quatrième
-campagne ou treizième outil), `request_budget_exceeded` (prochain appel trop
-coûteux/contexte trop grand), `scope_check_unavailable` (contrôle invalide ou
-indisponible). Le front traduit les quatre codes dans ses cinq langues. Les
-cartes et mutations déjà confirmées restent disponibles après une interruption.
+Codes actifs : `request_too_broad` (quatrième campagne ou treizième outil pour
+l’IA incluse) et `request_budget_exceeded` (prochain appel trop coûteux/contexte
+trop grand). `off_topic` et `scope_check_unavailable` ne sont plus émis. Les
+traductions front existantes restent compatibles avec un ancien serveur pendant
+le déploiement. Les cartes et mutations déjà confirmées restent disponibles
+après une interruption.
 Les événements existants, dont `targeting.criteria`, `creates_list:true` et la
 carte `lists` suivant une extraction, sont conservés.
 
-Tests : `node --test src/*.test.js` couvre les blocages avant outil, la croissance
-du contexte, les limites de campagnes, le repli gratuit et le contrat import.
-`examples/policy-model-smoke.mjs` vérifie la classification contre les vrais
-modèles OpenRouter sans appeler les API métier Magileads.
-
-Vérifications réelles lors de cette modification : les cas hors sujet, l’audit
-global, l’audit d’un ID unique, la rédaction B2B, l’aide Mailgun et les confirmations
-ont été exercés avec Flash, `openrouter/free` et Nemotron Ultra gratuit. Le front
-local et le serveur modifié ont été testés avec le vrai compte utilisateur #391 :
-refus visible de la question sur l’Amérique, refus de l’audit global, puis réponse
-autorisée sur la connexion d’un expéditeur sans aucune mutation. La limite de coût
-après croissance des outils et les flux d’extraction sont vérifiés avec des API
-simulées ; aucun audit massif ni import réel n’a été lancé pour ce chantier.
+Tests : `node --test src/*.test.js` couvre les questions générales dans les
+contextes assistant, PRM, reporting et import, sans classification ; les limites
+de coût et campagnes, le repli gratuit, l’authentification et la confirmation
+d’import restent testés. `examples/policy-model-smoke.mjs` vérifie les réponses
+générales contre les vrais modèles OpenRouter, sans API métier Magileads. Les
+contrats HTTP sont vérifiés avec des services simulés ; aucun import ni audit
+massif réel n’est lancé par ces tests.
 
 - Fournisseur du modèle : OpenRouter reste le choix partagé par défaut. Les clés personnelles OpenAI, Claude (`type=claude`), Gemini, DeepSeek et OpenRouter proviennent toutes des intégrations du compte Magileads actif. Le serveur IA vérifie l'identité avec `/users/me`, lit `/external-api-keys` à chaque appel et n'utilise la clé qu'en mémoire pendant cet appel. Il ne dispose d'aucun stockage de clés ou volume `/data`. Les appels avec une clé personnelle peuvent être facturés par le fournisseur.
 

@@ -87,7 +87,7 @@ AI_TEST_UNLIMITED_UNTIL=2026-09-30T20:59:59Z
 ```
 
 Pendant cette période, le serveur ne transmet aucun `max_tokens` au modèle
-(réponse comme contrôleur de périmètre), ne tronque ni les messages ni leur
+pour la réponse, ne tronque ni les messages ni leur
 historique et suspend les limites de prompt, coût par requête, prix des providers,
 trois campagnes, douze outils et requêtes par minute. La limite de six tours
 d’outils et le délai de 120 secondes par appel modèle sont également suspendus :
@@ -111,8 +111,8 @@ Ce statut décrit MagIA, pas les clés personnelles, qui restent sans plafond
 d’usage applicatif.
 Pour arrêter les tests plus tôt, retirer la variable et redémarrer le serveur.
 
-L’authentification, les clés propres au compte, le périmètre Magileads pour
-l’IA de plateforme, la validation d’import, la politique de suppression et la suppression des secrets
+L’authentification, les clés propres au compte, la validation d’import,
+la politique de suppression et la suppression des secrets
 restent actifs. La requête HTTP reste plafonnée à 8 Mo. La pagination et les
 tailles de pages prévues par les outils de lecture restent applicables. Hors
 tests, les résultats volumineux sont plafonnés ; après six tours d’outils, un dernier appel sans
@@ -168,7 +168,7 @@ L'IA incluse refuse avant l'appel au modèle un dernier message de plus de
 shared_prompt_too_large`). Chaque réponse est limitée à 2 048 tokens par
 tour de modèle. Une clé OpenAI personnelle n'est pas soumise à ces limites.
 Un budget par requête de **0,03 USD** (`AI_INCLUDED_MAX_REQUEST_USD`, maximum
-configurable 0,10 USD) couvre le contrôle du périmètre et tous les tours d’outils.
+configurable 0,10 USD) couvre la réponse et tous les tours d’outils.
 Avant chaque appel, le serveur réserve une estimation prudente incluant le
 prompt système, les messages, les schémas des outils, leurs résultats et la
 sortie maximale. L’estimation utilise les octets UTF-8, une marge de framing et
@@ -188,20 +188,17 @@ appels d’outils maximum, trois campagnes consultées en détail maximum, conte
 plafonné à 120 000 octets avec le framing. Les rapports par période/jour exigent
 une sélection de une à trois campagnes ; le résumé global reste disponible.
 
-**Périmètre Magileads pour MagIA (clé de plateforme) :** une classification
-sémantique précède toute réponse et tout outil métier. Elle n’a accès qu’à
-`classify_magileads_request`, sans accès aux données
-métier. Les questions hors application/prospection B2B sont refusées ; ajouter
-le mot « Magileads » ne suffit pas. Les confirmations, noms et ID restent
-compris grâce aux tours précédents. Un audit de toutes les campagnes est refusé
-pour l’IA incluse avant les outils. Le prompt principal rappelle ce périmètre.
-Si le contrôleur est indisponible ou sa sortie invalide, aucun outil métier
-n’est exécuté. Ce contrôle sémantique repose sur un modèle : il réduit les
-détournements, sans garantir une classification parfaite.
+**Sujets libres dans tous les assistants :** MagIA et les clés personnelles
+peuvent répondre aux questions générales comme aux demandes Magileads, dans
+l’assistant principal, la bulle, le reporting et l’import. Aucun appel de
+classification thématique ne précède la réponse ; les erreurs `off_topic` et
+`scope_check_unavailable` ne sont plus émises. Une question générale ne nécessite
+pas d’outil métier. Les données et actions Magileads restent limitées au compte
+authentifié, avec les validations d’import et de suppression habituelles. Les
+limites de coût et de volume de l’IA incluse restent applicables lorsqu’elles
+sont activées.
 
-Avec une clé personnelle OpenAI, Claude, Gemini, DeepSeek ou OpenRouter, ce
-contrôle et la consigne de refus hors sujet ne s’appliquent pas. L’utilisateur
-peut poser toute question et lancer une analyse de toutes ses campagnes ; le
+Avec une clé personnelle OpenAI, Claude, Gemini, DeepSeek ou OpenRouter, le
 serveur ne plafonne ni l’historique, ni la sortie, ni les tours d’outils, ni la
 durée d’un appel modèle, ni les résultats des outils. L’authentification du
 compte, ses permissions, les validations d’import, la confirmation humaine des
@@ -214,10 +211,11 @@ Les compteurs de budget sont locaux à la requête et disparaissent à sa fin.
 Un quota journalier exact par compte (y compris entre instances ou requêtes
 concurrentes) nécessitera un endpoint de réservation/compteur dans l’API
 Magileads. Le plafond partagé quotidien reste appliqué par OpenRouter. Les clés
-personnelles lèvent les plafonds de coût/volume et le périmètre de l’IA incluse.
+personnelles lèvent les plafonds de coût/volume de l’IA incluse.
 
 Vérification locale : `node --test src/*.test.js`. Vérification réelle de la
-classification, avec de petites requêtes facturées par le provider, sans accès
+liberté de sujet dans les différents contextes, avec de petites requêtes
+facturées par le provider, sans accès
 aux données Magileads : `node --env-file=.env examples/policy-model-smoke.mjs`.
 
 ---

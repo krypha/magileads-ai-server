@@ -1,24 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { IncludedWorkload, scopeConversation, scopeDecision, scopeRequestOptions } from './request-policy.js';
+import { IncludedWorkload } from './request-policy.js';
+import { buildSystemPrompt } from './prompt.js';
 
-test('free and direct OpenAI scope checks permit mandatory reasoning', () => {
-  assert.deepEqual(scopeRequestOptions('openrouter', 'openrouter/free'), { maxTokens: 2048, disableReasoning: false });
-  assert.deepEqual(scopeRequestOptions('openrouter', 'fixture/model:free'), { maxTokens: 2048, disableReasoning: false });
-  assert.deepEqual(scopeRequestOptions('openai', 'gpt-5.4-mini'), { maxTokens: 2048, disableReasoning: false });
-  assert.deepEqual(scopeRequestOptions('openrouter', 'deepseek/deepseek-v4-flash'), { maxTokens: 512, disableReasoning: true });
-});
-
-test('scope decisions fail closed on text, other tools, multiple calls or malformed arguments', () => {
-  const call = { name: 'classify_magileads_request', args: '{"decision":"allow"}' };
-  assert.equal(scopeDecision([call]), 'allow');
-  for (const calls of [[], [call, call], [{ ...call, name: 'run_operation' }], [{ ...call, args: '{}' }],
-    [{ ...call, args: '{"decision":"allow","override":true}' }]]) assert.equal(scopeDecision(calls), null);
-  const messages = [{ role: 'user', content: 'Cible des DAF à Lyon' }, { role: 'assistant', content: 'Valider ?' },
-    { role: 'user', content: 'go' }];
-  const payload = JSON.parse(scopeConversation(messages).at(-1).content);
-  assert.equal(payload.latest_request, 'go');
-  assert.equal(payload.previous_turns[0].content, 'Cible des DAF à Lyon');
+test('every assistant mode and provider permits general questions without a topic restriction', () => {
+  for (const mode of ['chat', 'import']) for (const personalKey of [false, true]) for (const pageContext of [false, true]) {
+    const prompt = buildSystemPrompt({ id: 391, level: 'user' }, { mode, personalKey, pageContext });
+    assert.match(prompt, /réponds à toute demande de l’utilisateur, même hors Magileads/);
+    assert.doesNotMatch(prompt, /PÉRIMÈTRE MAGIA|Refuse brièvement toute question indépendante/);
+  }
 });
 
 test('included tools cannot audit a fourth campaign, including scenarios and reporting aliases', () => {
