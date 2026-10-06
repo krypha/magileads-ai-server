@@ -1,6 +1,7 @@
 import { request } from './magileads.js';
 import { forbiddenOperation, hasSecret, sanitize } from './assistant-policy.js';
 import { copyContactsToList } from './contact-copy.js';
+import { BUSINESS_TOOLS, executeBusiness, validateSchedule, workflowDefaults, resourceOf, contactProperties } from './business-actions.js';
 
 // Explicit routes only. The model never chooses a URL, HTTP verb, or headers.
 // Bodies use the same names as v5/src/lib/api and v4/src/api/ContactAPI.js.
@@ -22,8 +23,8 @@ add('resolve_linkedin_urls', 'lists', 'POST', '/contact-lists/:id/enrich/linkedi
 add('create_contact', 'lists', 'POST', '/contact-lists/:id/contact', ['properties'], ['properties']);
 add('update_contact', 'lists', 'PUT', '/contact-lists/:id/contacts/:contact_id', ['properties'], ['properties']);
 add('list_workflows', 'campaigns', 'GET', '/workflows');
-add('create_workflow', 'campaigns', 'POST', '/workflows', ['name', 'steps', 'tags_ids', 'folder_id', 'nurturing', 'is_newsletter'], ['name', 'steps']);
-add('update_workflow', 'campaigns', 'PUT', '/workflows/:id', ['name', 'steps', 'tags_ids', 'folder_id', 'nurturing', 'is_newsletter']);
+add('create_workflow', 'campaigns', 'POST', '/workflows', ['name', 'steps', 'tags_ids', 'folder_id', 'nurturing', 'is_newsletter', 'auto_remove_responders'], ['name', 'steps'], 'Exclure les répondeurs par défaut au niveau de la séquence (auto_remove_responders:true). Chaque action a son exception inversée disable_auto_remove_responders:false. Une branche reply doit être discutée avant de désactiver la règle globale.');
+add('update_workflow', 'campaigns', 'PUT', '/workflows/:id', ['name', 'steps', 'tags_ids', 'folder_id', 'nurturing', 'is_newsletter', 'auto_remove_responders']);
 add('duplicate_workflow', 'campaigns', 'POST', '/workflows/:id/copy');
 add('pause_campaign', 'campaigns', 'PUT', '/workflows/:workflow_id/programmation/:id/stop');
 add('resume_campaign', 'campaigns', 'PUT', '/workflows/:workflow_id/programmation/:id/resume');
@@ -61,7 +62,7 @@ add('relaunch_google_targeting', 'targeting', 'POST', '/targeting/google/extract
 const weekdays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 const scheduleRequired = ['date_start', 'daily_send_limit', ...weekdays.map(day => `allowed_${day}`), 'priority_email', 'time_start_sending', 'time_stop_sending', 'limit_total_sending', 'copy_prospect_if_scoring_above', 'blacklist_ids', 'exclude_programmation_ids'];
 const scheduleFields = [...scheduleRequired, 'contactlist_ids', 'date_stop', 'stop_steps_at_end_date', 'time_sending_timezone', 'resend_to_bounce', 'ab_proportion', 'ab_subject_2', 'ab_subject_3', ...weekdays.flatMap(day => [`time_start_sending_${day}`, `time_stop_sending_${day}`])];
-add('schedule_campaign', 'campaigns', 'POST', '/workflows/:workflow_id/program', scheduleFields, [...scheduleRequired, 'contactlist_ids', 'time_sending_timezone'], 'Programme un envoi réel. Recueillir la liste, les expéditeurs, les dates, le fuseau et les limites avant de lancer. Les jours sont des booléens ; dates YYYY-MM-DD, heures HH:MM:SS.');
+add('schedule_campaign', 'campaigns', 'POST', '/workflows/:workflow_id/program', scheduleFields, [...scheduleRequired, 'contactlist_ids', 'time_sending_timezone'], 'Programme un envoi réel. date_start=YYYY-MM-DD HH:MM:SS est le lancement initial dans time_sending_timezone (IANA). time_start_sending/time_stop_sending=HH:MM:SS sont la fenêtre quotidienne, pas l’heure du premier lancement. Les étapes suivantes peuvent avoir leurs propres fenêtres. Recueillir séparément ces informations, audience, expéditeurs et limites.');
 add('get_campaign_schedule', 'campaigns', 'GET', '/workflows/:workflow_id/programmation/:id');
 add('update_campaign_schedule', 'campaigns', 'PUT', '/workflows/:workflow_id/programmation/:id', scheduleFields, [], 'Lire le planning existant avant modification et conserver les autres paramètres.');
 add('pause_campaign_step', 'campaigns', 'PUT', '/workflows/:workflow_id/programmation/:id/step/:step_id/stop');
@@ -110,14 +111,31 @@ const object = { type: 'object' };
 export const EXTENDED_TOOLS = [
   ['discover_operations', 'Découvrir les fonctions disponibles et les champs acceptés. Filtrer par groupe lists, campaigns, reporting, models, organization, agents, senders, targeting, prm, messages ou automation.', { group: { type: 'string' } }, []],
   ['run_operation', 'Exécuter une fonction du catalogue obtenu par discover_operations. Aucune suppression. Pour les créations/modifications utiliser uniquement les valeurs demandées par l’utilisateur.', { operation: { type: 'string' }, params: object, body: object }, ['operation']],
-  ['connect_email', 'Afficher dans le chat le formulaire sécurisé de connexion email. Ne jamais demander de mot de passe dans le chat.', {}, []],
-  ['open_commercial_form', 'Ouvrir le formulaire commercial pour les imports/uploads de fichiers, la création visuelle de campagne/modèle ou les réglages avancés des expéditeurs. Le formulaire prend le relais ; ne pas prétendre avoir terminé l’action.', { form: { type: 'string', enum: ['import', 'files', 'campaign', 'models', 'senders'] } }, ['form']],
+  ['connect_email', 'Afficher le formulaire sécurisé de connexion email. Pour reconnecter une boîte existante, fournir account_id de list_email_accounts ; ne pas créer une seconde boîte. Aucun secret dans le chat.', { account_id: { type: 'integer', minimum: 1 } }, []],
+  ['open_commercial_form', 'Ouvrir un formulaire sécurisé dans le chat pour les imports de contacts ou uploads de fichiers. Pour importer dans une liste existante, fournir list_id. Les autres formulaires ouvrent la page dédiée ; ne pas prétendre avoir terminé.', { form: { type: 'string', enum: ['import', 'files', 'campaign', 'models', 'senders'] }, list_id: { type: 'integer', minimum: 1 } }, ['form']],
   ['list_dropcontact_connections', 'Lister les connexions Dropcontact disponibles (identifiants et noms uniquement, jamais les secrets).', {}, []],
-].map(([name, description, properties, required]) => ({ type: 'function', function: { name, description, parameters: { type: 'object', properties, required, additionalProperties: false } } }));
+].map(([name, description, properties, required]) => ({ type: 'function', function: { name, description, parameters: { type: 'object', properties, required, additionalProperties: false } } })).concat(BUSINESS_TOOLS);
 
 export async function executeExtended(name, args, auth, context = {}) {
-  if (name === 'open_commercial_form') return ['import', 'files', 'campaign', 'models', 'senders'].includes(args.form) ? { ui: 'form', form: args.form, status: 'awaiting_user' } : { error: 'unknown_form' };
-  if (name === 'connect_email') return { ui: 'connect_email', status: 'awaiting_user', note: 'Le formulaire crée le compte directement auprès de Magileads. Aucun mot de passe ne passe par ce serveur IA.' };
+  const business = await executeBusiness(name, args, auth, context);
+  if (business !== null) return business;
+  if (name === 'open_commercial_form') {
+    if (!['import', 'files', 'campaign', 'models', 'senders'].includes(args.form)) return { error: 'unknown_form' };
+    if (args.list_id != null) {
+      if (args.form !== 'import' || !Number.isSafeInteger(args.list_id) || args.list_id <= 0) return { error: 'invalid_import_list' };
+      const list = await request(`/contact-lists/${args.list_id}`, { auth });
+      if (!list.ok) return { error: list.errorKey || 'import_list_unavailable' };
+    }
+    return { ui: 'form', form: args.form, status: 'awaiting_user', ...(args.list_id != null ? { list_id: args.list_id } : {}) };
+  }
+  if (name === 'connect_email') {
+    if (args.account_id != null && (!Number.isSafeInteger(args.account_id) || args.account_id <= 0)) return { error: 'invalid_email_account_id' };
+    if (args.account_id != null) {
+      const account = await request(`/integrations/email/${args.account_id}`, { auth });
+      if (!account.ok) return { error: account.errorKey || 'email_account_unavailable' };
+    }
+    return { ui: 'connect_email', status: 'awaiting_user', ...(args.account_id != null ? { account_id: args.account_id } : {}), note: 'Connexion ou reconnexion dans le formulaire sécurisé. Aucun mot de passe ne passe par ce serveur IA.' };
+  }
   if (name === 'discover_operations') return { operations: OPERATIONS.filter(op => !args.group || op.group === args.group).map(({ method, path, ...op }) => ({ ...op, params: [...path.matchAll(/:([a-z_]+)/g)].map(match => match[1]) })) };
   if (name === 'list_dropcontact_connections') {
     const r = await request('/external-api-keys', { auth });
@@ -145,14 +163,51 @@ export async function executeExtended(name, args, auth, context = {}) {
     return copyContactsToList({ source_list_id: params.id, filter: selection.filter,
       destination_list_id: body.contact_list_id_destination }, auth, context);
   }
-  if (op.name === 'schedule_campaign') {
-    if (!Array.isArray(body.contactlist_ids) || !body.contactlist_ids.length || !weekdays.some(day => body[`allowed_${day}`] === true) || body.time_stop_sending <= body.time_start_sending || (body.date_stop && body.date_stop < body.date_start)) return { error: 'invalid_schedule' };
+  if (op.name === 'schedule_campaign' || op.name === 'update_campaign_schedule') {
+    let schedule = body;
+    if (op.name === 'update_campaign_schedule') {
+      const current = await request(path, { auth });
+      if (!current.ok) return { error: current.errorKey || 'schedule_unavailable' };
+      const resource = resourceOf(current.data, 'workflow_programmation');
+      if (!resource) return { error: 'schedule_unavailable' };
+      schedule = { ...resource, ...body };
+    }
+    const error = validateSchedule(schedule, op.name === 'schedule_campaign');
+    if (error) return { error };
   }
   if (op.name === 'enrich_dropcontact') {
     const keys = await executeExtended('list_dropcontact_connections', {}, auth);
     if (!keys.connections?.some(key => String(key.id) === String(params.key_id))) return { error: 'dropcontact_connection_not_found' };
   }
-  const payload = op.name === 'enrich_dropcontact' ? { filter: { mode: 'and', values: [] }, ...body } : op.name === 'create_ai_agent' ? { description: '', rules: [], sharing: [], tags_ids: [], active: true, ...body } : body;
+  let payload = op.name === 'enrich_dropcontact' ? { filter: { mode: 'and', values: [] }, ...body } : op.name === 'create_ai_agent' ? { description: '', rules: [], sharing: [], tags_ids: [], active: true, ...body } : body;
+  if (op.name === 'create_workflow') {
+    const prepared = workflowDefaults(body);
+    if (prepared.error) return prepared;
+    payload = prepared.payload;
+  }
+  if (op.name === 'update_workflow' && body.auto_remove_responders != null) {
+    if (typeof body.auto_remove_responders !== 'boolean') return { error: 'invalid_responder_exclusion' };
+    if (body.auto_remove_responders) {
+      const current = await request(path, { auth });
+      if (!current.ok) return { error: current.errorKey || 'workflow_unavailable' };
+      const steps = body.steps ?? resourceOf(current.data, 'workflow_profile')?.steps;
+      if (!Array.isArray(steps)) return { error: 'workflow_steps_unavailable' };
+      if (steps.some(step => step.step_type === 'event' && /reply|replied|answer/i.test(step.event_type ?? ''))) return { error: 'reply_branch_conflicts_with_global_exclusion' };
+    }
+  }
+  if (op.name === 'create_contact' || op.name === 'update_contact') {
+    if (Array.isArray(body.properties)) {
+      if (!body.properties.length || body.properties.length > 100 || body.properties.some(property => !property || Object.keys(property).some(key => !['data_field_id', 'value'].includes(key)) || !Number.isSafeInteger(property.data_field_id) || property.data_field_id <= 0 || typeof property.value !== 'string') ||
+        new Set(body.properties.map(property => property.data_field_id)).size !== body.properties.length) return { error: 'invalid_contact_properties' };
+      const verified = await contactProperties(Object.fromEntries(body.properties.map(property => [String(property.data_field_id), property.value])), auth);
+      if (verified.error) return verified;
+      payload = verified;
+    } else {
+      const resolved = await contactProperties(body.properties, auth);
+      if (resolved.error) return resolved;
+      payload = resolved;
+    }
+  }
   const r = await request(path, { auth, method: op.method, ...(op.method !== 'GET' ? { body: Object.keys(payload).length ? payload : undefined } : {}) });
   if (!r.ok) return { error: r.errorKey || 'operation_failed', status: r.status };
   return { operation: op.name, status: 'accepted', data: sanitize(r.data), resource_id: params.id };

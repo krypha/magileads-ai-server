@@ -517,6 +517,55 @@ des clés non configuré côté serveur.
 
 ## 9. Notes d'exploitation
 
+### Capacités métier de l’assistant
+
+Les outils de `src/business-actions.js` complètent le catalogue de fonctions :
+
+- partage vers un utilisateur vérifié, sans effacer les accès existants : listes,
+  séquences, modèles de tous les canaux, signatures, fichiers, agents IA, tags,
+  champs, liens courts, blacklists, expéditeurs, pools, rapports, domaines Mailgun
+  accessibles et filtres sauvegardés ;
+- campagnes : séquence, statistiques (toujours en lecture) et prospects sont
+  trois périmètres de partage distincts. Ne pas partager les expéditeurs ou tout
+  le PRM sans demande explicite ;
+- ajout manuel d’un contact avec résolution des vrais identifiants de champs ;
+- lecture des filtres sauvegardés depuis `GET /users/me` et des rappels PRM ;
+- exclusion des répondeurs au niveau de la séquence ou d’une action. Une nouvelle
+  séquence utilise `auto_remove_responders:true` par défaut ; une action respecte
+  cette règle avec `disable_auto_remove_responders:false`. Une branche de réponse
+  incompatible est refusée, jamais corrigée en désactivant la règle en silence ;
+- copie PRM → blacklist : propriétaire et filtres de page conservés, champs
+  vérifiés, aperçu API puis `confirm_count` égal au compte recalculé. Aucun contact
+  n’est supprimé ; un job accepté n’est pas relancé dans la même réponse ;
+- programmation : `date_start` contient la date **et l’heure du lancement
+  initial** dans `time_sending_timezone`. Les fenêtres quotidiennes
+  `time_start_sending`/`time_stop_sending` sont indépendantes, tout comme les
+  éventuelles fenêtres des étapes suivantes. Une modification partielle valide
+  le planning existant sans renvoyer ni écraser ses autres paramètres.
+
+`connect_email({account_id})` et `open_commercial_form({form:"import",list_id})`
+retournent des cartes avec des IDs vérifiés, pas des secrets. Le frontend v5
+réutilise ses formulaires d’import, d’upload et de reconnexion dans le chat.
+Les fichiers sont envoyés directement à Magileads, jamais encodés dans le contexte
+du modèle. Un upload dans la bibliothèque crée un lien public : le formulaire
+le précise avant l’envoi.
+
+Déployer le serveur IA **et** le frontend v5 pour ces nouvelles cartes. Aucune
+nouvelle variable d’environnement n’est nécessaire. Les IDs optionnels restent
+compatibles avec l’ancien protocole. Le serveur MCP autonome ChatGPT/Claude est
+un autre dépôt et n’est pas modifié par ces changements.
+
+Vérification sans données réelles : `node --test src/*.test.js`. Les tests métier
+utilisent des réponses API fictives et vérifient les routes, les permissions,
+les choix explicites, les filtres et l’absence de secrets dans les cartes.
+
+L’affichage de la date programmée dans les tableaux et le classement des listes
+dans l’onglet Audience sont des demandes UI indépendantes, hors de ces outils.
+La demande de masquer des blocs de la fiche agent nécessite leur identification.
+
+Les routes concernées sont détaillées dans
+[`docs/assistant-business-endpoints.md`](docs/assistant-business-endpoints.md).
+
 - **Modèle** : un modèle gratuit peut renvoyer `429` ou disparaître du catalogue
   (« No endpoints found »). En production, privilégier un modèle payant ou une clé
   BYOK. Le palier « Gratuit » bascule automatiquement sur le candidat suivant

@@ -31,17 +31,18 @@ function authHeaders(auth) {
  */
 export async function request(path, { auth, method = "GET", body, headers } = {}) {
   if (method === "DELETE") return { ok: false, status: 403, errorKey: "deletion_disabled" };
+  const multipart = body instanceof FormData;
   let res;
   try {
     res = await fetch(`${API_BASE}${path}`, {
       method,
       headers: {
-        "Content-Type": "application/json",
+        ...(!multipart ? { "Content-Type": "application/json" } : {}),
         Accept: "application/json",
         ...authHeaders(auth),
         ...headers,
       },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: body === undefined ? undefined : multipart ? body : JSON.stringify(body),
       cache: "no-store",
     });
   } catch {

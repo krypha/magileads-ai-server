@@ -43,6 +43,12 @@ export const PRM_TOOLS = [
   ['list_prm_pipelines', 'Lister les PRM accessibles et leur propriétaire, sans lire leurs prospects ni marquer leurs réponses comme vues.', {}, []],
   ['list_prm_statuses', 'Lire les vraies colonnes du PRM sélectionné. Sur un PRM partagé, utiliser uniquement les statuts de son propriétaire exposés par Magileads.', { user_id: SELECTION.user_id }, []],
   ['count_prm_contacts', 'Compter exactement les prospects du PRM ou d’une colonne, avec les filtres de la page. Renvoie le total filtré fourni par Magileads ; aucun échantillon, aucune carte. À utiliser pour « combien de gens dans My column ? ».', SELECTION, []],
+  ['copy_prm_to_blacklist', 'Copier les valeurs de champs de prospects PRM dans une blacklist existante, sans supprimer les prospects. Préserve le propriétaire, la colonne et les filtres de la page. Premier appel = aperçu ; rappeler avec confirm_count exactement égal au compte pour lancer une seule copie.', {
+    ...SELECTION, blacklist_id: { type: 'integer', minimum: 1 },
+    contact_ids: { type: 'array', maxItems: 500, items: { type: 'integer', minimum: 1 } },
+    datafield_ids: { type: 'array', minItems: 1, maxItems: 100, items: { type: 'integer', minimum: 1 }, description: 'Champs réels à copier, souvent email ou linkedin_url. Ne pas inventer leur ID.' },
+    confirm_count: { type: 'integer', minimum: 0 },
+  }, ['blacklist_id', 'datafield_ids']],
   ['query_prm_contacts', 'Lire des prospects PRM seulement si des personnes sont demandées. Filtrer réellement par colonne et/ou critères. Échantillon de 25 maximum, total exact séparé, pagination par next_page (jamais page=2). Aucune carte.', {
     ...SELECTION, search: { type: 'string', description: 'Recherche plein texte, 3 caractères minimum, appliquée via any_datafield contains.' },
     limit: { type: 'number', description: '1 à 25, défaut 10.' },
@@ -205,6 +211,41 @@ export async function executePrmTool(name, args, auth, context = {}) {
   }
   const selection = await selectionFor(args, scope, auth);
   if (selection.error) return selection;
+  if (name === 'copy_prm_to_blacklist') {
+    const numericId = value => typeof value === 'number' && positiveId(value) !== null;
+    if (!numericId(args.blacklist_id) || !Array.isArray(args.datafield_ids) || !args.datafield_ids.length || args.datafield_ids.length > 100 || !args.datafield_ids.every(numericId) ||
+      args.contact_ids != null && (!Array.isArray(args.contact_ids) || args.contact_ids.length > 500 || !args.contact_ids.every(numericId))) return { error: 'invalid_blacklist_selection' };
+    const ids = args.contact_ids ?? [];
+    if (!ids.length && !selection.filter?.values.length && args.entire_prm !== true) return { error: 'explicit_blacklist_scope_required' };
+    // Explicit IDs are ANDed with the live page/column filter, never broaden it.
+    const filter = ids.length ? { mode: 'and', values: [
+      ...(selection.filter?.values.length ? [selection.filter] : []),
+      { mode: 'or', values: ids.map(id => ({ field_name: 'id', type: 'equals', value: String(id) })) },
+    ] } : selection.filter ?? { mode: 'and', values: [] };
+    const blacklist = await request(`/blacklists/${args.blacklist_id}`, { auth });
+    if (!blacklist.ok) return errorOf(blacklist, 'blacklist_unavailable');
+    const fields = Array.isArray(scope.ownerRow?.datafields) && scope.ownerRow.datafields.length
+      ? { ok: true, data: { data_fields_list: scope.ownerRow.datafields } }
+      : scope.owner.own ? await listDataFields(auth) : null;
+    if (!fields?.ok || !Array.isArray(fields.data?.data_fields_list)) return { error: 'prm_fields_unavailable' };
+    if (!args.datafield_ids.every(id => fields.data.data_fields_list.some(field => Number(field.id) === Number(id)))) return { error: 'invalid_blacklist_data_fields' };
+    const preview = await listPrmContacts(auth, { per_page: 1, filter }, scope.owner.id);
+    if (!preview.ok) return errorOf(preview, 'prm_preview_unavailable');
+    const count = preview.data?.number_of_results;
+    if (!Number.isSafeInteger(count) || count < 0) return { error: 'prm_count_unavailable' };
+    if (!count) return { status: 'nothing_to_copy', count: 0 };
+    if (args.confirm_count !== count) return { dry_run: true, count, user_id: scope.owner.id,
+      blacklist_id: args.blacklist_id, filter, note: 'Rappeler avec confirm_count égal au compte ; aucune copie envoyée.' };
+    const key = JSON.stringify([scope.owner.id, args.blacklist_id, filter, [...new Set(args.datafield_ids)].sort()]);
+    context.blacklistCopies ??= new Set();
+    if (context.blacklistCopies.has(key)) return { error: 'mutation_already_attempted' };
+    context.blacklistCopies.add(key);
+    const result = await request(`/prm/contacts/user/${scope.owner.id}/copy/blacklist/${args.blacklist_id}`, {
+      auth, method: 'POST', body: { contacts_selection: { filter, contact_ids: [], excluded_contact_ids: [] }, datafield_ids: [...new Set(args.datafield_ids)] },
+    });
+    return result.ok ? { status: 'accepted', count, blacklist_id: args.blacklist_id, user_id: scope.owner.id,
+      note: 'Copie lancée, pas une suppression. Ne pas relancer le traitement accepté.' } : errorOf(result, 'blacklist_copy_failed');
+  }
   const countOnly = name === 'count_prm_contacts';
   const limit = countOnly ? 1 : Math.min(Math.max(Math.trunc(Number(args.limit)) || 10, 1), 25);
   const options = { per_page: limit, ...(selection.filter ? { filter: selection.filter } : {}) };
