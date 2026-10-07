@@ -72,12 +72,14 @@ export function approvedToolArgs(name, raw, approval) {
       args.location = criteria.locations[0] ?? '';
       args.company = criteria.companies[0] ?? '';
       args.linkedin_account_id = approval.accountId;
+      args.connection_degrees = criteria.connection_degrees;
     } else if (criteria.source === 'sales_navigator') {
       args.titles = criteria.job_titles;
       args.locations = criteria.locations;
       args.industries = criteria.sectors;
       args.companies = criteria.companies;
       args.seniority_levels = criteria.seniority;
+      args.connection_degrees = criteria.connection_degrees;
       args.linkedin_account_id = approval.accountId;
     } else if (criteria.source === 'database') {
       args.filters = approval.filters;

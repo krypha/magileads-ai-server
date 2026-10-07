@@ -1,4 +1,5 @@
 import { sanitize, forbiddenOperation } from './assistant-policy.js';
+import { applyConnectionDegrees, CONNECTION_DEGREES_SCHEMA, validConnectionDegrees } from './linkedin-connections.js';
 import { usageLimitsEnabled } from './usage-policy.js';
 import { createDocument, DOCUMENT_TOOL } from './documents.js';
 import { EXTENDED_TOOLS, executeExtended } from './operations.js';
@@ -105,6 +106,7 @@ export const AI_TOOLS = [
           source: { type: ['string', 'null'], enum: ['linkedin', 'sales_navigator', 'database', 'google_maps', null] },
           job_titles: { type: 'array', items: { type: 'string' } },
           seniority: { type: 'array', items: { type: 'string' } },
+          connection_degrees: CONNECTION_DEGREES_SCHEMA,
           sectors: { type: 'array', items: { type: 'string' } },
           company_size_min: { type: ['number', 'null'] },
           company_size_max: { type: ['number', 'null'] },
@@ -155,6 +157,7 @@ export const AI_TOOLS = [
         companies: { type: 'array', items: { type: 'string' } },
         company_head_counts: { type: 'array', items: { type: 'string', enum: ['independant', '1-10', '11-50', '51-200', '201-500', '501-1000', '1001-5000', '5001-10000', '10001-above'] } },
         seniority_levels: { type: 'array', items: { type: 'string', enum: ['in_training', 'entry_level', 'senior', 'strategic', 'entry_level_manager', 'experienced_manager', 'director', 'vice_president', 'cxo', 'owner_partner'] } },
+        connection_degrees: CONNECTION_DEGREES_SCHEMA,
         linkedin_account_id: { type: 'number' }, list_name: { type: 'string' }, contact_list_id: { type: 'number' },
         max_results: { type: 'number', description: 'Défaut 100, max 1000.' }, generate_email: { type: 'boolean', description: 'Défaut true.' },
       }, required: ['linkedin_account_id'] },
@@ -398,6 +401,7 @@ export const AI_TOOLS = [
               "Ville/pays en FRANÇAIS de préférence, ex. « Royaume-Uni », « Londres », « Paris », « France » (optionnel ; évite les abréviations comme « UK »).",
           },
           company: { type: "string", description: "Entreprise actuelle ciblée (optionnel)." },
+          connection_degrees: CONNECTION_DEGREES_SCHEMA,
           max_results: { type: "number", description: "Nombre max de contacts (défaut 100, max 1000)." },
         },
         required: ["linkedin_account_id"],
@@ -885,6 +889,7 @@ export async function executeTool(name, argsRaw, auth, context = {}) {
       }
 
       case "run_linkedin_targeting": {
+        if (!validConnectionDegrees(args.connection_degrees)) return cap({ error: 'Niveaux de connexion invalides : utiliser 1, 2 ou 3.' });
         const accountId = Number(args.linkedin_account_id);
         if (!Number.isFinite(accountId) || accountId <= 0) {
           return cap({ error: "linkedin_account_id manquant" });
@@ -917,8 +922,11 @@ export async function executeTool(name, argsRaw, auth, context = {}) {
         }
 
         const gen = await generatePeoplesSearchUrl(auth, filters);
-        const url = gen.ok ? gen.data?.linkedin_url : undefined;
+        let url = gen.ok ? gen.data?.linkedin_url : undefined;
         if (!url) return cap(linkedinGenerationFailure(gen, 'LinkedIn'));
+        const connectionFilter = applyConnectionDegrees(url, args.connection_degrees);
+        if (connectionFilter.error) return cap(connectionFilter);
+        url = connectionFilter.url;
         const ext = await linkedinExtract(auth, "extract-peoples-search", {
           linkedin_account_id: accountId,
           ...target.payload,
@@ -938,6 +946,7 @@ export async function executeTool(name, argsRaw, auth, context = {}) {
             title: args.title,
             location_requested: args.location,
             location_used: resolvedLocation ?? null,
+            connection_degrees: connectionFilter.degrees,
             company: args.company,
             linkedin_account_id: accountId,
             max_results: maxResults,

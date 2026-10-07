@@ -50,3 +50,17 @@ test('reviewed LinkedIn account is enforced and incomplete criteria are refused'
   assert.equal(parseImportApproval({ list_name: 'x', linkedin_account_id: 7,
     targeting: { source: 'linkedin', locations: ['France'] } }), null);
 });
+
+test('reviewed connection degrees override model arguments in both LinkedIn engines', () => {
+  for (const source of ['linkedin', 'sales_navigator']) {
+    const approval = parseImportApproval({ list_name: 'Relations directes', linkedin_account_id: 7,
+      targeting: { source, job_titles: ['Directeur'], locations: ['France'], connection_degrees: [1] } });
+    const args = JSON.parse(approvedToolArgs(source === 'linkedin' ? 'run_linkedin_targeting' : 'run_sales_navigator_targeting', '{"connection_degrees":[2,3]}', approval));
+    assert.deepEqual(args.connection_degrees, [1]);
+    const all = parseImportApproval({ list_name: 'Toutes relations', linkedin_account_id: 7,
+      targeting: { source, job_titles: ['Directeur'], locations: ['France'] } });
+    assert.deepEqual(JSON.parse(approvedToolArgs(source === 'linkedin' ? 'run_linkedin_targeting' : 'run_sales_navigator_targeting', '{"connection_degrees":[1]}', all)).connection_degrees, []);
+  }
+  assert.equal(parseImportApproval({ list_name: 'x', linkedin_account_id: 7,
+    targeting: { source: 'linkedin', job_titles: ['Directeur'], locations: ['France'], connection_degrees: ['F'] } }), null);
+});

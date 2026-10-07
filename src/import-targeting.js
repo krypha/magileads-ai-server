@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { applyConnectionDegrees, normalizeConnectionDegrees, validConnectionDegrees } from './linkedin-connections.js';
 import {
   countDatabaseTargeting,
   extractDatabaseTargeting,
@@ -67,6 +68,7 @@ export function normalizeTargeting(input = {}) {
     source,
     job_titles: words(input.job_titles),
     seniority: words(input.seniority),
+    connection_degrees: normalizeConnectionDegrees(input.connection_degrees),
     sectors: words(input.sectors),
     company_size_min: Number.isSafeInteger(input.company_size_min) && input.company_size_min >= 0 ? input.company_size_min : null,
     company_size_max: Number.isSafeInteger(input.company_size_max) && input.company_size_max >= 0 ? input.company_size_max : null,
@@ -80,6 +82,7 @@ export function normalizeTargeting(input = {}) {
     missing: [],
   };
   const missing = criteria.missing;
+  if (!validConnectionDegrees(input.connection_degrees)) missing.push('Choisir des niveaux de connexion valides : 1, 2 ou 3.');
   if (!source) missing.push('Choisir une source de recherche.');
   if (criteria.company_size_min !== null && criteria.company_size_max !== null && criteria.company_size_min > criteria.company_size_max) missing.push('Corriger les bornes de taille d’entreprise.');
   const maxAllowed = source === 'google_maps' ? 200 : source === 'database' ? 10000 : 1000;
@@ -322,6 +325,7 @@ export async function resolveLinkedinLocations(requestedNames, auth) {
 }
 
 export async function runSalesNavigator(args, auth, profile) {
+  if (!validConnectionDegrees(args.connection_degrees)) return { error: 'Niveaux de connexion invalides : utiliser 1, 2 ou 3.' };
   if (!hasPermission(profile, 'accessSearchAI')) return { error: 'Recherche Sales Navigator non autorisée pour ce compte.' };
   const accountId = positiveId(args.linkedin_account_id);
   if (!accountId) return { error: 'linkedin_account_id manquant.' };
@@ -390,6 +394,9 @@ export async function runSalesNavigator(args, auth, profile) {
   }
   const maxResults = Math.min(Math.max(Math.trunc(Number(args.max_results)) || 100, 1), 1000);
   const generateEmail = args.generate_email !== false;
+  const connectionFilter = applyConnectionDegrees(url, args.connection_degrees, true);
+  if (connectionFilter.error) return connectionFilter;
+  url = connectionFilter.url;
   const endpoint = hasPermission(profile, 'useAlternativeTargeting')
     ? 'extract-sales-navigator-peoples-search-alternative'
     : 'extract-sales-navigator-peoples-search';
@@ -407,6 +414,7 @@ export async function runSalesNavigator(args, auth, profile) {
       titles, locations: locationsResolved, companies,
       industries: applied.industries.map(value => ({ id: value, name: INDUSTRIES[value]?.fr ?? value })),
       company_head_counts: applied.company_head_counts, seniority_levels: applied.seniority_levels,
+      connection_degrees: connectionFilter.degrees,
       linkedin_account_id: accountId, max_results: maxResults, generate_email: generateEmail,
       ignored_filters: ignored,
     },

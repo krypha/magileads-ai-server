@@ -490,7 +490,7 @@ Le front conserve le formulaire de revue visible dès le premier tour, pendant l
 ```json
 {
   "source": null,
-  "job_titles": [], "seniority": [], "sectors": [],
+  "job_titles": [], "seniority": [], "connection_degrees": [], "sectors": [],
   "company_size_min": null, "company_size_max": null,
   "locations": [], "companies": [], "activity": null, "cities": [],
   "exclusions": [], "max_results": null,
@@ -693,3 +693,12 @@ La liste détaillée ci-dessous est issue du registre exécuté par le serveur.
 - send_email — POST /workflows/send/email
 - send_linkedin_message — POST /prm/contact/:id/linkedin/message
 - send_linkedin_invitation — POST /prm/contact/:id/linkedin/invitation
+
+
+### Niveaux de connexion LinkedIn / Sales Navigator
+
+Champ additif `connection_degrees: number[]` dans `targeting.criteria`, `update_targeting` et les deux outils `run_linkedin_targeting` / `run_sales_navigator_targeting`. Valeurs permises : 1 (relations directes), 2, 3 (troisième et plus). Champ absent ou [] = aucun filtre de niveau ; compatible avec les anciennes conversations. Ce champ est distinct de `seniority`. Le formulaire affiche le choix, le conserve entre LinkedIn et Sales Navigator et l'envoie dans `import_approval.targeting`. Le serveur impose le choix validé même si le modèle tente d'en envoyer un autre. Le résultat expose `criteria_applied.connection_degrees`.
+
+Le Swagger public lu le 7 octobre 2026 ne propose pas ce filtre aux endpoints de génération. Aucun champ API non documenté n'est ajouté : l'URL réellement transmise à l'extraction est enrichie après génération, avec `network=["F"]` sur LinkedIn classique ou la facette Rest.li `(type:RELATIONSHIP,values:List((id:F,selectionType:INCLUDED)))` sur Sales Navigator. Codes F/S/O = 1/2/3+, conformément à [la documentation du fournisseur Lix](https://lix.ae/docs/#sales-navigator-leads-search-parameterized) et au filtre décrit par [LinkedIn](https://www.linkedin.com/help/sales-navigator/answer/a1452817?lang=en). Les autres facettes et paramètres sont préservés ; un format incompatible refuse l'extraction au lieu d'ignorer silencieusement le niveau.
+
+Vérifications : tests locaux des URL, de l'extraction unique simulée, du passage de source en SSE et du verrouillage du choix validé. Le modèle réel `deepseek/deepseek-v4-pro` a aussi émis `[1]` pour LinkedIn, Sales Navigator et le changement de source (critères fictifs ; coût total environ 0,024 $). `node --env-file=.env examples/linkedin-connections-model-smoke.mjs` reproduit ce test ; `CONNECTION_TEST_MODEL` permet de choisir un modèle. Le modèle gratuit local configuré renvoyait HTTP 404. Aucun lancement d'extraction réel ni création de liste : l'acceptation finale de ces URL par un job réel reste à vérifier après déploiement.

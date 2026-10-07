@@ -49,7 +49,7 @@ test('update_targeting has the exact event shape and is read-only', async () => 
   global.fetch = () => { throw new Error('update_targeting must not fetch'); };
   try {
     const result = JSON.parse(await executeTool('update_targeting', JSON.stringify({ source: 'google_maps', activity: 'dentistes', cities: ['Lyon'], ready_to_launch: false }), auth));
-    assert.deepEqual(Object.keys(result), ['source', 'job_titles', 'seniority', 'sectors', 'company_size_min', 'company_size_max', 'locations', 'companies', 'activity', 'cities', 'exclusions', 'max_results', 'ready_to_launch', 'missing']);
+    assert.deepEqual(Object.keys(result), ['source', 'job_titles', 'seniority', 'connection_degrees', 'sectors', 'company_size_min', 'company_size_max', 'locations', 'companies', 'activity', 'cities', 'exclusions', 'max_results', 'ready_to_launch', 'missing']);
     assert.equal(result.ready_to_launch, true);
     assert.deepEqual(result.missing, []);
     assert.deepEqual(cardsForTool('update_targeting', JSON.stringify(result)), []);

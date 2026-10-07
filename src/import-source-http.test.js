@@ -44,7 +44,7 @@ test('import SSE switches LinkedIn → Sales Navigator → Maps and back with no
   try {
     await Promise.race([once(child.stdout, 'data'), once(child, 'exit').then(() => { throw Error('server exited'); })]);
     for (const [text, patch] of [
-      ['Passe sur Sales Navigator', { source: 'sales_navigator' }],
+      ['Passe sur Sales Navigator, seulement mes relations de 1er niveau', { source: 'sales_navigator', connection_degrees: [1] }],
       ['Passe sur Google Maps à Paris', { source: 'google_maps', cities: ['Paris'] }],
       ['Des agences de communication', { source: 'google_maps', activity: 'agences de communication' }],
       ['Reviens à LinkedIn', { source: 'linkedin' }],
@@ -69,6 +69,7 @@ test('import SSE switches LinkedIn → Sales Navigator → Maps and back with no
         assert.equal(criteria.ready_to_launch, false);
         assert.equal(criteria.activity, null);
       } else assert.equal(criteria.ready_to_launch, true);
+      assert.deepEqual(criteria.connection_degrees, [1]);
     }
     assert.deepEqual(apiReads, ['/users/me', '/users/me', '/users/me', '/users/me']);
     if (providerError) throw providerError;
