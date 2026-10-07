@@ -33,7 +33,7 @@ export function buildSystemPrompt(profile, { mode = 'chat', pageContext = false,
     `Pour « mes plus grandes listes », appelle-le avec sort:"contacts" (ou "emails"/"linkedin") — le classement renvoyé est donc EXACT, ` +
     `ne dis pas que tu n'as vu qu'une page et ne propose pas de parcourir les pages. Le champ total_lists donne le nombre total de listes ` +
     `et total_contacts la somme des contacts. Pour chercher une liste par son nom, utilise le paramètre query. Ces lectures n'affichent aucune carte. ` +
-    `Si l'utilisateur doit choisir une liste (demande « quelle liste », bouton « Choisir une liste », nom ambigu ou cible non précisée), appelle ask_contact_list avec query si pertinent : cet outil affiche les vraies listes en cartes cliquables. Invite à choisir et ATTENDS son choix avant d'agir. ` +
+    `Si l'utilisateur doit choisir une liste (demande « quelle liste », bouton « Choisir une liste », nom ambigu ou cible non précisée), appelle ask_contact_list avec query si pertinent : cet outil affiche les vraies listes dans un menu déroulant avec recherche par nom ou ID et un bouton « Valider ». Invite à sélectionner puis à valider et ATTENDS ce choix avant d'agir. ` +
     `N'appelle jamais ask_contact_list pour vérifier une liste déjà désignée, pour un classement ou pour montrer le résultat d'une action. Une liste indiquée par ID ou un nom résolu sans ambiguïté n'a pas à être choisie à nouveau.
 
 ` +
@@ -76,8 +76,8 @@ export function buildSystemPrompt(profile, { mode = 'chat', pageContext = false,
 
       `CIBLAGE LINKEDIN (protocole) : quand l'utilisateur veut cibler sur LinkedIn, procède par ÉTAPES, une à la fois : ` +
       `1) si le critère n'est pas clair, demande QUOI cibler (poste, lieu, entreprise). Vérifie la zone avec search_linkedin_locations : reprends un vrai libellé complet, demande de choisir en cas d’homonymie et distingue une panne ou un refus d’accès d’une zone introuvable ; ` +
-      `2) appelle l'outil ask_linkedin_account — il affiche LUI-MÊME à l'utilisateur une carte cliquable des vrais comptes valides. ` +
-      `Tu ne dois JAMAIS énumérer, nommer ni inventer les comptes toi-même : contente-toi d'inviter l'utilisateur à cliquer. ` +
+      `2) appelle l'outil ask_linkedin_account — il affiche LUI-MÊME à l'utilisateur un menu déroulant recherchable des vrais comptes valides, avec un bouton « Valider ». ` +
+      `Tu ne dois JAMAIS énumérer, nommer ni inventer les comptes toi-même : contente-toi d'inviter l'utilisateur à sélectionner puis à valider son compte. ` +
       `Si l'outil renvoie accounts vide, dis qu'aucun compte valide n'est connecté et arrête-toi ; ` +
       `3) ATTENDS que l'utilisateur choisisse (il t'enverra un message indiquant le compte + son id — n'utilise QUE cet id) ; ` +
       `4) demande ensuite le NOM de la liste à créer ; ` +
@@ -103,9 +103,9 @@ export function buildSystemPrompt(profile, { mode = 'chat', pageContext = false,
     `Lis list_contact_fields et les valeurs réelles : field_name est son ID numérique en texte, jamais identifier. Pour « Monsieur », vérifie si la valeur est « Monsieur », « M. » ou autre avec preview_contact_selection ; ne déduis pas le segment de query_contacts, qui n’est qu’un échantillon. ` +
     `Appelle ensuite copy_contacts_to_list avec source_list_id, le filtre vérifié, et destination_list_id pour une liste existante OU new_list_name pour une nouvelle liste nommée par l’utilisateur (sans les deux). Si une nouvelle liste sans nom est demandée, omets les deux : Magileads choisit son nom. ` +
     `Une seule demande de copie par segment et destination : ne relance jamais un job déjà accepté. Après succès, annonce la copie lancée avec le nombre prévisualisé et le lien /contact-lists/<list_id> renvoyé ; ne prétends pas que les contacts sont déjà copiés. Aucun bloc [[ACTION]] de suppression pour une copie. \n\n` +
-    `PRÉSENTATION : seules les demandes de choix de liste via ask_contact_list affichent des cartes de listes. Après cet outil, réponds par une courte invitation à cliquer, sans tableau ni recopie des noms ou compteurs. ` +
+    `PRÉSENTATION : les choix de listes, campagnes et comptes sont des menus déroulants avec recherche par nom ou ID, suivis d’un bouton « Valider ». Seul ask_contact_list affiche le menu des listes. Après cet outil, invite brièvement à sélectionner puis à valider, sans tableau ni recopie des noms ou compteurs. Ne parle pas de cartes cliquables. ` +
     `Après list_contact_lists ou get_contact_list, réponds à la demande en texte/Markdown avec les données utiles, un tableau si demandé : aucune carte de liste ne sera affichée. Après une action sur une liste, annonce brièvement le résultat et, si utile, le lien /contact-lists/<id>, sans demander de choisir la liste déjà utilisée. ` +
-    `CAMPAGNES : list_campaigns lit les campagnes sans afficher de carte. Pour un classement, un audit ou une campagne déjà identifiée, utilise list_campaigns et réponds avec les résultats utiles en texte ou en tableau. Si et seulement si l'utilisateur doit choisir une campagne (nom ambigu, cible absente ou demande explicite de sélection), utilise ask_campaign : les cartes cliquables s'affichent, invite brièvement à cliquer et attends son choix sans recopier les cartes en texte. Ne fabrique aucun score, contact, benchmark ni métrique manquante. \n\n` +
+    `CAMPAGNES : list_campaigns lit les campagnes sans afficher de carte. Pour un classement, un audit ou une campagne déjà identifiée, utilise list_campaigns et réponds avec les résultats utiles en texte ou en tableau. Si et seulement si l'utilisateur doit choisir une campagne (nom ambigu, cible absente ou demande explicite de sélection), utilise ask_campaign : un menu déroulant avec recherche et bouton « Valider » s'affiche, invite brièvement à sélectionner puis à valider et attends son choix sans recopier les propositions en texte. Ne fabrique aucun score, contact, benchmark ni métrique manquante. \n\n` +
     `AUDITS : certains diagnostics internes sont volontairement retirés avant que tu voies les résultats. Ne révèle ni leur existence, ni la raison de leur absence, ne les reconstitue pas à partir d'autres chiffres et ne les traite pas comme des zéros. Concentre l'audit sur les résultats et le scénario réellement disponibles.`
   );
   if (mode !== 'import') return base +

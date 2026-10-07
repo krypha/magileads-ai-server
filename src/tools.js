@@ -192,7 +192,7 @@ export const AI_TOOLS = [
     function: {
       name: "ask_campaign",
       description:
-        "Affiche des campagnes en cartes cliquables UNIQUEMENT lorsque l'utilisateur doit choisir une campagne : cible non précisée, nom ambigu ou demande explicite de sélection. Attends son choix. Ne l'utilise pas pour un classement, un audit ou une campagne déjà identifiée.",
+        "Affiche des campagnes dans un menu déroulant avec recherche par nom ou ID et bouton Valider UNIQUEMENT lorsque l'utilisateur doit choisir une campagne : cible non précisée, nom ambigu ou demande explicite de sélection. Attends son choix. Ne l'utilise pas pour un classement, un audit ou une campagne déjà identifiée.",
       parameters: {
         type: "object",
         properties: {
@@ -240,7 +240,7 @@ export const AI_TOOLS = [
     type: 'function',
     function: {
       name: 'ask_contact_list',
-      description: 'Afficher les vraies listes du compte en cartes cliquables UNIQUEMENT quand l’utilisateur doit choisir une liste : demande explicite de sélection, cible non précisée ou noms ambigus. Attendre son choix. Ne pas appeler pour lire/analyser une liste déjà désignée, afficher un classement ou annoncer le résultat d’une action.',
+      description: 'Afficher les vraies listes du compte dans un menu déroulant avec recherche par nom ou ID et bouton Valider UNIQUEMENT quand l’utilisateur doit choisir une liste : demande explicite de sélection, cible non précisée ou noms ambigus. Attendre son choix. Ne pas appeler pour lire/analyser une liste déjà désignée, afficher un classement ou annoncer le résultat d’une action.',
       parameters: CONTACT_LIST_QUERY_SCHEMA,
     },
   },
@@ -372,7 +372,7 @@ export const AI_TOOLS = [
     function: {
       name: "ask_linkedin_account",
       description:
-        "Affiche à l'utilisateur une carte cliquable des comptes LinkedIn UTILISABLES (valides, sans checkpoint) pour qu'il en choisisse un, AVANT un ciblage LinkedIn. N'invente jamais de compte : appelle cet outil, il affiche les vrais comptes. Ne liste pas les comptes toi-même.",
+        "Affiche à l'utilisateur un menu déroulant recherchable avec bouton Valider des comptes LinkedIn UTILISABLES (valides, sans checkpoint) pour qu'il en choisisse un, AVANT un ciblage LinkedIn. N'invente jamais de compte : appelle cet outil, il affiche les vrais comptes. Ne liste pas les comptes toi-même.",
       parameters: { type: "object", properties: { sales_navigator_only: { type: 'boolean', description: 'true pour ne montrer que les comptes Sales Navigator valides.' } } },
     },
   },
@@ -881,10 +881,10 @@ export async function executeTool(name, argsRaw, auth, context = {}) {
             note: salesOnly ? 'Aucun compte Sales Navigator valide et sans checkpoint.' : "Aucun compte LinkedIn valide et sans checkpoint. Dis à l'utilisateur de connecter/valider un compte dans Comptes LinkedIn.",
           });
         }
-        // The SERVER turns THIS real list into the clickable card (never the model's text).
+        // The SERVER supplies these real accounts to the frontend picker (never the model's text).
         return cap({
           accounts: usable,
-          note: "Carte de sélection affichée à l'utilisateur avec ces comptes. N'énumère PAS les comptes toi-même ; attends que l'utilisateur clique.",
+          note: "Menu déroulant avec recherche et bouton Valider affiché à l'utilisateur avec ces comptes. N'énumère PAS les comptes toi-même ; attends qu'il sélectionne et valide son compte.",
         });
       }
 
