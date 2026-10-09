@@ -61,6 +61,21 @@ export function updateImportTargeting(input, previous) {
   return normalizeTargeting({ ...(previous ?? {}), ...input });
 }
 
+/**
+ * "My connections": LinkedIn, the account's first degree and nothing else
+ * narrowing it. That is a whole network, not a search, so it needs no title,
+ * company or place, and it runs through `extract-connections` (v4's and the
+ * import form's "Mes connexions", up to 30,000) rather than a people search.
+ */
+export const OWN_CONNECTIONS_MAX = 30000;
+export function firstDegreeOnly(degrees) {
+  return Array.isArray(degrees) && degrees.length === 1 && degrees[0] === 1;
+}
+export function ownConnectionsOnly(criteria) {
+  return criteria?.source === 'linkedin' && firstDegreeOnly(criteria.connection_degrees) &&
+    !criteria.job_titles?.length && !criteria.companies?.length && !criteria.locations?.length;
+}
+
 /** Exact, stable shape for targeting.criteria; readiness is computed, not trusted. */
 export function normalizeTargeting(input = {}) {
   const source = SOURCES.has(input.source) ? input.source : null;
@@ -77,7 +92,7 @@ export function normalizeTargeting(input = {}) {
     activity: typeof input.activity === 'string' ? input.activity.trim().slice(0, 120) || null : null,
     cities: words(input.cities),
     exclusions: words(input.exclusions),
-    max_results: Number.isSafeInteger(input.max_results) && input.max_results > 0 ? Math.min(input.max_results, 10000) : null,
+    max_results: Number.isSafeInteger(input.max_results) && input.max_results > 0 ? Math.min(input.max_results, OWN_CONNECTIONS_MAX) : null,
     ready_to_launch: false,
     missing: [],
   };
@@ -85,11 +100,15 @@ export function normalizeTargeting(input = {}) {
   if (!validConnectionDegrees(input.connection_degrees)) missing.push('Choisir des niveaux de connexion valides : 1, 2 ou 3.');
   if (!source) missing.push('Choisir une source de recherche.');
   if (criteria.company_size_min !== null && criteria.company_size_max !== null && criteria.company_size_min > criteria.company_size_max) missing.push('Corriger les bornes de taille d’entreprise.');
-  const maxAllowed = source === 'google_maps' ? 200 : source === 'database' ? 10000 : 1000;
+  const maxAllowed = source === 'google_maps' ? 200 : source === 'database' ? 10000
+    : ownConnectionsOnly(criteria) ? OWN_CONNECTIONS_MAX : 1000;
   if (criteria.max_results !== null && criteria.max_results > maxAllowed) missing.push(`Cette source accepte au plus ${maxAllowed} résultats.`);
   if (source === 'google_maps') {
     if (!criteria.activity) missing.push('Préciser une activité.');
     if (!criteria.cities.length) missing.push('Préciser au moins une ville.');
+  } else if (source === 'linkedin' && firstDegreeOnly(criteria.connection_degrees)) {
+    // The account's own network: complete as it is, with or without a title,
+    // company or place to narrow it.
   } else if (source === 'linkedin' || source === 'sales_navigator') {
     const professionalCriterion = source === 'linkedin'
       ? criteria.job_titles.length || criteria.companies.length

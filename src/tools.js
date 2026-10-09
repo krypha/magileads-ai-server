@@ -1,13 +1,24 @@
 import { sanitize, forbiddenOperation } from './assistant-policy.js';
-import { applyConnectionDegrees, CONNECTION_DEGREES_SCHEMA, validConnectionDegrees } from './linkedin-connections.js';
+import { applyConnectionDegrees, CONNECTION_DEGREES_SCHEMA, validConnectionDegrees, normalizeConnectionDegrees } from './linkedin-connections.js';
 import { usageLimitsEnabled } from './usage-policy.js';
 import { createDocument, DOCUMENT_TOOL } from './documents.js';
 import { EXTENDED_TOOLS, executeExtended } from './operations.js';
 import { CONTACT_COPY_FILTER_SCHEMA, copyContactsToList } from './contact-copy.js';
 import { PRM_TOOLS, PRM_TOOL_NAMES, executePrmTool } from './prm.js';
 import {
-  countDatabase, hasPermission, updateImportTargeting, positiveId, resolveListTarget,
-  runDatabase, runSalesNavigator, usableLinkedInAccount, lookupLinkedinLocations, resolveLinkedinLocations, linkedinGenerationFailure,
+  countDatabase,
+  hasPermission,
+  updateImportTargeting,
+  positiveId,
+  resolveListTarget,
+  runDatabase,
+  runSalesNavigator,
+  usableLinkedInAccount,
+  lookupLinkedinLocations,
+  resolveLinkedinLocations,
+  linkedinGenerationFailure,
+  firstDegreeOnly,
+  OWN_CONNECTIONS_MAX,
 } from './import-targeting.js';
 /**
  * AI tools (OpenAI-compatible function schemas) + their executor.
@@ -381,7 +392,7 @@ export const AI_TOOLS = [
     function: {
       name: "run_linkedin_targeting",
       description:
-        "Lance un ciblage LinkedIn « recherche de personnes » : cherche des profils par poste/lieu/entreprise avec un compte LinkedIn VALIDE, et crée une liste (extraction asynchrone). N'appelle cet outil qu'APRÈS que l'utilisateur ait choisi un compte (linkedin_account_id) et donné un nom de liste.",
+        "Lance un ciblage LinkedIn « recherche de personnes » : cherche des profils par poste/lieu/entreprise avec un compte LinkedIn VALIDE, et crée une liste (extraction asynchrone). Avec connection_degrees:[1] et sans poste, lieu ni entreprise, importe toutes les relations directes du compte (jusqu’à 30 000). N'appelle cet outil qu'APRÈS que l'utilisateur ait choisi un compte (linkedin_account_id) et donné un nom de liste.",
       parameters: {
         type: "object",
         properties: {
@@ -402,7 +413,7 @@ export const AI_TOOLS = [
           },
           company: { type: "string", description: "Entreprise actuelle ciblée (optionnel)." },
           connection_degrees: CONNECTION_DEGREES_SCHEMA,
-          max_results: { type: "number", description: "Nombre max de contacts (défaut 100, max 1000)." },
+          max_results: { type: "number", description: "Nombre max de contacts (défaut 100, max 1000 ; 30 000 pour toutes les relations directes)." },
         },
         required: ["linkedin_account_id"],
       },
@@ -898,6 +909,38 @@ export async function executeTool(name, argsRaw, auth, context = {}) {
         if (account.error) return cap(account);
         const target = await resolveListTarget(args, auth);
         if (target.error) return cap(target);
+        const text = (value) => typeof value === "string" && value.trim() ? value.trim() : "";
+
+        // "My connections": the first degree with nothing narrowing it is the
+        // account's whole network, extracted by its own route rather than by a
+        // people search with no keyword (which the URL generator refuses).
+        if (firstDegreeOnly(normalizeConnectionDegrees(args.connection_degrees)) &&
+          !text(args.title) && !text(args.location) && !text(args.company)) {
+          const max = Math.min(Math.max(Math.trunc(Number(args.max_results)) || 100, 1), OWN_CONNECTIONS_MAX);
+          const ext = await linkedinExtract(auth, "extract-connections", {
+            linkedin_account_id: accountId,
+            ...target.payload,
+            max_results: max,
+            generate_email: true,
+          });
+          const listId = positiveId(ext.data?.contact_list_id) ?? (ext.ok ? target.id : null);
+          if (!ext.ok || !listId) return cap({ error: "lancement de l'import des relations LinkedIn échoué" });
+          return cap({
+            status: "extraction lancée",
+            list_id: listId,
+            list_name: target.name,
+            criteria_applied: {
+              connections_only: true,
+              connection_degrees: [1],
+              linkedin_account_id: accountId,
+              max_results: max,
+              ignored_filters: [],
+            },
+            max_results: max,
+            note: "Import asynchrone de toutes les relations directes (1er niveau) du compte LinkedIn choisi : la liste se remplit en arrière-plan. Ne PAS re-lancer.",
+          });
+        }
+
         const maxResults = Math.min(Math.max(Math.trunc(Number(args.max_results)) || 100, 1), 1000);
 
         // Share the verified bilingual resolution with Sales Navigator.
