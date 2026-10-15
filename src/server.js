@@ -26,7 +26,8 @@ import { AI_TOOLS, TOOL_LABELS, CREATES_LIST, createsListForTool, executeTool } 
 import { buildSystemPrompt } from "./prompt.js";
 import { KEY_TYPE_FOR_PROVIDER, MODEL_PROVIDERS, listProviderModels, readModelStream, resolveIncludedModel, resolveModels, selectedModel, upstreamRequest } from './model-providers.js';
 import { approvedRunTool, approvedToolArgs, parseImportApproval } from './import-approval.js';
-import { checkIncludedBudget, sharedPromptTooLarge, RequestBudget, INCLUDED_MAX_PRICE, FREE_MAX_PRICE } from './included-budget.js';
+import { checkIncludedBudget, sharedPromptTooLarge, RequestBudget, INCLUDED_MAX_PRICE, FREE_MAX_PRICE, INCLUDED_REQUEST_USD } from './included-budget.js';
+import { DailyQuota, MemoryQuotaStore, createQuotaStore, includedOrigins, paidOriginAllowed } from './included-quota.js';
 import { redactHiddenAuditText } from './assistant-policy.js';
 import { IncludedWorkload } from './request-policy.js';
 import { usageLimitsEnabled } from './usage-policy.js';
@@ -179,6 +180,17 @@ async function authenticate(req, res, cors) {
   return { auth, profile, accountId };
 }
 
+// Each account's daily share of the shared paid key (see included-quota.js).
+let quotaStore;
+try {
+  quotaStore = await createQuotaStore();
+} catch {
+  // REDIS_URL under Node, or a malformed URL: count here rather than not at all.
+  console.error('[ai] REDIS_URL unusable, counting the included AI per process');
+  quotaStore = { store: new MemoryQuotaStore(), shared: false };
+}
+const dailyQuota = new DailyQuota(quotaStore.store);
+
 // Very small in-memory limiter (per user id). Enough to stop a runaway loop from
 // burning model credits; use a shared store if you run several instances.
 const hits = new Map();
@@ -273,6 +285,8 @@ async function handleChat(req, res, cors) {
   let candidateKeys = null;
   let candidateTiers = null;
   let budgetFallback = false;
+  // Why an included answer is on the free model, for the client to say so.
+  let fallbackReason = null;
   let anthropicMaxTokens = null;
   if (included) {
     // Tests use the platform key instead of requiring the dedicated capped key.
@@ -282,7 +296,17 @@ async function handleChat(req, res, cors) {
     const freeKey = process.env.AI_API_KEY_FREE || AI_API_KEY || paidKey;
     // A misconfigured paid slug must never be used as the shared free fallback.
     const freeModels = resolveModels('openrouter', 'free').filter(model => model === 'openrouter/free' || model.endsWith(':free'));
-    const paidAvailable = enforceUsageLimits ? await checkIncludedBudget(paidKey) : Boolean(paidKey);
+    let paidAvailable = Boolean(paidKey);
+    if (enforceUsageLimits) {
+      // Cheapest refusal first: no request leaves for the store or OpenRouter
+      // when the answer is already known.
+      const spent = paidOriginAllowed(req.headers.origin) ? await dailyQuota.spent(accountId) : null;
+      if (!paidOriginAllowed(req.headers.origin)) fallbackReason = 'white_label';
+      else if (spent === null) fallbackReason = 'quota_unavailable';
+      else if (spent >= dailyQuota.limit) fallbackReason = 'user_daily_budget';
+      else if (!await checkIncludedBudget(paidKey)) fallbackReason = 'shared_budget';
+      paidAvailable = fallbackReason === null;
+    }
     budgetFallback = !paidAvailable;
     const paidModels = paidAvailable ? [resolveIncludedModel()] : [];
     candidates = [...paidModels, ...freeModels];
@@ -325,6 +349,22 @@ async function handleChat(req, res, cors) {
   if (!candidates.length || (included && !candidateKeys?.some(Boolean))) {
     return json(res, tier === 'custom' ? 400 : 503,
       { ok: false, errorKey: tier === 'custom' ? 'invalid_custom_model' : 'ai_not_configured' }, cors);
+  }
+  // Charge the request's ceiling to the account before it runs; the finally
+  // below swaps it for the real cost. A hold the store refuses means no paid
+  // model at all: an unrecorded paid call is what this exists to prevent.
+  let quotaHold = null;
+  if (included && enforceUsageLimits && candidateTiers[0] === 'simple') {
+    quotaHold = await dailyQuota.hold(accountId, INCLUDED_REQUEST_USD);
+    if (!quotaHold) {
+      const free = candidateTiers.map(candidateTier => candidateTier === 'free');
+      candidates = candidates.filter((_, index) => free[index]);
+      candidateKeys = candidateKeys.filter((_, index) => free[index]);
+      candidateTiers = candidateTiers.filter((_, index) => free[index]);
+      budgetFallback = true;
+      fallbackReason = 'quota_unavailable';
+      if (!candidates.length) return json(res, 503, { ok: false, errorKey: 'ai_not_configured' }, cors);
+    }
   }
 
   const pageContext = /^\[(?:Screen context, not written by the user and not to be quoted|Screen context from the app, not written by the user)\]/.test(clientMessages.at(-1).content);
@@ -475,7 +515,8 @@ async function handleChat(req, res, cors) {
       if (announcedModel !== model) {
         announcedModel = model;
         sendEvent("model.info", { provider, tier: candidateTiers?.[modelIdx] || tier, model,
-          fallback: budgetFallback || modelIdx > 0 });
+          fallback: budgetFallback || modelIdx > 0,
+          ...(budgetFallback || modelIdx > 0 ? { fallback_reason: fallbackReason ?? 'model_unavailable' } : {}) });
       }
 
       const { assistantContent, reasoningContent, calls } = await readOpened(opened, (delta) => {
@@ -594,6 +635,9 @@ async function handleChat(req, res, cors) {
   } finally {
     clearInterval(heartbeat);
     if (!closed) res.end();
+    // Free calls cost 0 in the ledger; a paid one without reported usage keeps
+    // its conservative reservation.
+    await dailyQuota.settle(quotaHold, requestBudget?.spent);
   }
 }
 
@@ -696,6 +740,7 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, () => {
   console.log(`[ai-server] listening on http://localhost:${PORT}`);
   console.log(`[ai-server] tiers -> free=${resolveModels('openrouter', "free").length} candidat(s) | simple=${AI_MODEL || "(unset)"} | included=${resolveIncludedModel()} | complex=${AI_MODEL_COMPLEX || "(= simple)"} | custom=${ALLOW_CUSTOM_MODEL ? "autorise" : "desactive"}`);
+  console.log(`[ai-server] included AI -> $${dailyQuota.limit}/account/day, counted ${quotaStore.shared ? 'in Redis' : 'in this process (set REDIS_URL to share it)'} | paid for ${includedOrigins().join(', ')}`);
   if (!AI_API_KEY) console.warn("[ai-server] NOTE: OpenRouter unavailable (AI_API_KEY not set)");
   if (!AI_MODEL) console.warn("[ai-server] NOTE: AI_MODEL non defini -> les paliers simple/complex sont indisponibles");
 });

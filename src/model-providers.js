@@ -88,7 +88,9 @@ export function resolveModels(provider, tier, customModel) {
     return model ? [model] : [];
   }
   if (provider === 'openrouter') {
-    if (tier === 'free') return (process.env.AI_MODEL_FREE || 'openrouter/free').split(',').map(s => s.trim()).filter(Boolean);
+    // Nemotron 3 Ultra first: free, and it calls tools; OpenRouter's own free
+    // router behind it when that model is saturated.
+    if (tier === 'free') return (process.env.AI_MODEL_FREE || 'nvidia/nemotron-3-ultra-550b-a55b:free,openrouter/free').split(',').map(s => s.trim()).filter(Boolean);
     return [tier === 'complex' ? process.env.AI_MODEL_COMPLEX || process.env.AI_MODEL : process.env.AI_MODEL].filter(Boolean);
   }
   // A user's direct API key is billed by the provider: never call it on a
@@ -142,6 +144,9 @@ export function upstreamRequest(provider, apiKey, model, conversation, signal, {
         ...(provider === 'openai' && openAiNeedsNoReasoning(model) ? { reasoning_effort: 'none' } : {}),
         ...(maxTokens ? provider === 'openai' ? { max_completion_tokens: maxTokens } : { max_tokens: maxTokens } : {}),
         ...(provider === 'openrouter' && maxPrice ? { provider: { max_price: maxPrice, require_parameters: true } } : {}),
+        // The real cost of the call, in the last chunk: what each account's
+        // daily allowance is charged (included-quota.js).
+        ...(provider === 'openrouter' ? { usage: { include: true } } : {}),
         ...(provider === 'openrouter' && disableReasoning ? { reasoning: { effort: 'none' } } : {}) }),
       signal,
     },

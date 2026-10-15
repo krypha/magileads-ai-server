@@ -68,7 +68,10 @@ npm run start:node       # node --env-file=.env src/server.js
 | `AI_INCLUDED_API_KEY` | Clé OpenRouter dédiée aux comptes `level=user`, plafonnée à 3 USD avec `limit_reset=daily`. Sans plafond vérifiable, le serveur utilise le modèle gratuit. |
 | `AI_API_KEY_FREE`   | Clé distincte recommandée pour le repli gratuit après épuisement du budget (à défaut : `AI_API_KEY`). |
 | `AI_MODEL_INCLUDED` | Modèle Simple des comptes `level=user`. Si vide, reprend `AI_MODEL` ; si les deux sont vides, `deepseek/deepseek-v4-flash`. |
-| `AI_MODEL_FREE`      | Palier « Gratuit » — défaut `openrouter/free` (routeur géré par OpenRouter). Accepte aussi une liste séparée par des virgules, essayée dans l'ordre |
+| `AI_MODEL_FREE`      | Palier « Gratuit » et repli de l'IA incluse — défaut `nvidia/nemotron-3-ultra-550b-a55b:free,openrouter/free` (Nemotron 3 Ultra, puis le routeur gratuit d'OpenRouter). Liste séparée par des virgules, essayée dans l'ordre |
+| `AI_INCLUDED_USER_DAILY_USD` | Part quotidienne de chaque compte sur la clé incluse, en USD (défaut `0.15`, maximum `3`). Au-delà, ce compte passe sur `AI_MODEL_FREE` jusqu'à minuit UTC. |
+| `AI_INCLUDED_ORIGINS` | Fronts Magileads autorisés à utiliser la clé incluse payante (défaut `https://beta.magileads.io,https://application.magileads.io` ; `localhost` toujours accepté). Une autre origine — une marque blanche — répond sur `AI_MODEL_FREE`. |
+| `REDIS_URL`          | Compteurs partagés de la part quotidienne (`redis://…`, client intégré à Bun). Vide : compteurs en mémoire du processus. |
 | `AI_MODEL`           | Modèle du palier « Simple » (palier par défaut)                     |
 | `AI_MODEL_COMPLEX`   | Modèle du palier « Complexe » (si vide → identique à Simple)        |
 | `ALLOW_CUSTOM_MODEL` | `false` pour désactiver le palier « Perso. »                         |
@@ -143,7 +146,8 @@ auprès d'OpenRouter avant chaque chat : la clé doit avoir un plafond de
 3 USD maximum, `limit_reset: "daily"` et un solde positif. Sinon il choisit
 `AI_MODEL_FREE` avant l'appel. Un refus 402/429 du modèle payant déclenche
 aussi ce repli. Le plafond est appliqué par OpenRouter entre toutes les
-instances ; le serveur IA ne stocke aucun compteur ni clé utilisateur.
+instances ; la part de chaque compte est décrite plus bas (« Part quotidienne
+par compte »). Le serveur IA ne stocke aucune clé utilisateur.
 
 Le modèle des comptes `level=user` suit la priorité `AI_MODEL_INCLUDED` →
 `AI_MODEL` → `deepseek/deepseek-v4-flash`, y compris pendant les tests sans
@@ -207,11 +211,41 @@ restent applicables. La requête HTTP reste plafonnée à 8 Mo.
 Pour Claude, l’API exige `max_tokens` : le serveur utilise la limite de sortie
 annoncée par le catalogue du modèle choisi, lorsqu’elle est disponible.
 
-Les compteurs de budget sont locaux à la requête et disparaissent à sa fin.
-Un quota journalier exact par compte (y compris entre instances ou requêtes
-concurrentes) nécessitera un endpoint de réservation/compteur dans l’API
-Magileads. Le plafond partagé quotidien reste appliqué par OpenRouter. Les clés
-personnelles lèvent les plafonds de coût/volume de l’IA incluse.
+**Part quotidienne par compte** (`src/included-quota.js`). Les 3 USD de la clé
+incluse sont partagés : sans autre règle, un seul compte pourrait les dépenser,
+avec un gros audit comme avec cent petites questions. Chaque compte a donc sa
+propre part, **en dollars** (`AI_INCLUDED_USER_DAILY_USD`, défaut 0,15 USD) :
+grosses et petites demandes puisent dans le même solde. Le coût vient de
+`usage.cost`, demandé à OpenRouter sur chaque appel (`usage: {include: true}`),
+et l’estimation prudente de la réservation est conservée quand il manque. Au
+début d’une requête payante, le plafond par requête (0,03 USD) est imputé au
+compte, puis remplacé à la fin par le coût réel : deux requêtes parallèles ne
+peuvent pas passer toutes les deux sur le même solde. Une fois sa part épuisée,
+le compte répond sur `AI_MODEL_FREE` jusqu’à minuit UTC (l’heure où OpenRouter
+remet la clé à zéro), les autres comptes gardent le modèle payant.
+`model.info` porte alors `fallback_reason` :
+
+| `fallback_reason` | Cause |
+| --- | --- |
+| `user_daily_budget` | la part quotidienne de ce compte est épuisée |
+| `shared_budget` | les 3 USD de la clé sont épuisés, ou son plafond n’est pas vérifiable |
+| `white_label` | la requête vient d’un front qui n’est pas dans `AI_INCLUDED_ORIGINS` |
+| `quota_unavailable` | le compteur (Redis) ne répond pas : jamais d’appel payant non compté |
+| `model_unavailable` | le modèle payant a refusé (402/429/…) et le suivant a pris le relais |
+
+**Marques blanches.** Leurs utilisateurs sont censés utiliser leur propre clé
+(intégration personnelle) ; tant qu’une clé par marque blanche n’existe pas,
+une origine absente de `AI_INCLUDED_ORIGINS` n’atteint jamais la clé payante.
+Une requête sans en-tête `Origin` (script, test) est traitée comme Magileads :
+la part par compte s’applique quand même.
+
+**Où vivent les compteurs.** Avec `REDIS_URL`, dans Redis (`INCRBYFLOAT` sur
+`ai:included:spent:{jour UTC}:{compte}`, expiration à deux jours) : partagés
+entre instances et conservés aux redémarrages. Sans, dans la mémoire du
+processus : exacts pour une seule instance, remis à zéro par un redémarrage ou
+un déploiement ; le plafond de 3 USD sur la clé borne quand même le total. Le
+log de démarrage dit lequel est actif. Les clés personnelles ne sont jamais
+comptées.
 
 Vérification locale : `node --test src/*.test.js`. Vérification réelle de la
 liberté de sujet dans les différents contextes, avec de petites requêtes
@@ -269,7 +303,7 @@ l'application. Le composant Mantine gère ce cas via `getAuthHeaders`.
 
 | Palier | Modèle utilisé | Particularité |
 | ------ | -------------- | ------------- |
-| `free` | `AI_MODEL_FREE` (défaut `openrouter/free`) | OpenRouter sélectionne lui-même un modèle gratuit. Si une liste est épinglée, **bascule automatique** sur le suivant en cas de 429/404/402 |
+| `free` | `AI_MODEL_FREE` (défaut Nemotron 3 Ultra `:free`, puis `openrouter/free`) | Modèles gratuits essayés dans l’ordre. Si une liste est épinglée, **bascule automatique** sur le suivant en cas de 429/404/402 |
 | `simple` | `AI_MODEL` pour les admins ; `AI_MODEL_INCLUDED` puis `AI_MODEL` puis Flash pour `level=user` | palier par défaut |
 | `complex` | `AI_MODEL_COMPLEX` | retombe sur `AI_MODEL` si non défini |
 | `custom` | fourni par le client | permet de tester un modèle précis |
@@ -570,7 +604,8 @@ Les routes concernées sont détaillées dans
   (« No endpoints found »). En production, privilégier un modèle payant ou une clé
   BYOK. Le palier « Gratuit » bascule automatiquement sur le candidat suivant
   lorsqu'une liste est configurée.
-- **Coût** : le rate-limit par utilisateur est stocké en mémoire ; avec plusieurs
-  instances, le déporter vers un store partagé (Redis).
+- **Coût** : le rate-limit par minute est stocké en mémoire ; la part quotidienne
+  par compte va dans Redis dès que `REDIS_URL` est défini (indispensable avec
+  plusieurs instances).
 - **Scalabilité** : le serveur est quasi sans état (l'historique vit côté front),
   il se réplique donc derrière un load-balancer sans difficulté.
