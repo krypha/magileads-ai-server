@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DailyQuota, MemoryQuotaStore, RedisQuotaStore, paidOriginAllowed, userDailyLimit, utcDay } from './included-quota.js';
+import { DailyQuota, MemoryQuotaStore, RedisQuotaStore, includedOrigins, paidOriginAllowed, userDailyLimit, utcDay } from './included-quota.js';
 
 test('the per-account allowance defaults to 15 cents and cannot exceed the whole key', () => {
   assert.equal(userDailyLimit(undefined), 0.15);
@@ -63,8 +63,20 @@ test('Redis counts with INCRBYFLOAT and expires each key after two days', async 
   assert.deepEqual(sent.find(([command]) => command === 'EXPIRE'), ['EXPIRE', 'ai:included:spent:2026-10-15:7', '172800']);
 });
 
+test('the configured fronts may be written with or without a scheme', () => {
+  // What production was set to, then what the default and a sloppy copy say.
+  for (const value of ['beta.magileads.io', 'https://beta.magileads.io', ' "https://Beta.Magileads.io/" ']) {
+    assert.equal(paidOriginAllowed('https://beta.magileads.io', includedOrigins(value)), true, value);
+  }
+  assert.deepEqual(includedOrigins('beta.staging.magileads.io, https://application.magileads.io/app'),
+    ['beta.staging.magileads.io', 'application.magileads.io']);
+  assert.equal(paidOriginAllowed('https://beta.magileads.io', includedOrigins('beta.staging.magileads.io')), false);
+  assert.equal(paidOriginAllowed('http://example.test:5100', includedOrigins('example.test:5100')), true);
+  assert.deepEqual(includedOrigins(''), ['beta.magileads.io', 'application.magileads.io']);
+});
+
 test('only Magileads fronts and non-browser callers reach the paid key', () => {
-  const allowed = ['https://beta.magileads.io'];
+  const allowed = includedOrigins('https://beta.magileads.io');
   assert.equal(paidOriginAllowed('https://beta.magileads.io', allowed), true);
   assert.equal(paidOriginAllowed(undefined, allowed), true);
   assert.equal(paidOriginAllowed('http://localhost:5100', allowed), true);

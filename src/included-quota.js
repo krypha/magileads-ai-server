@@ -114,8 +114,18 @@ export class DailyQuota {
 // theirs to spend and they answer on the free model.
 const DEFAULT_INCLUDED_ORIGINS = 'https://beta.magileads.io,https://application.magileads.io';
 
+/**
+ * The configured fronts as bare hostnames. Written either way in the wild:
+ * production was set to `beta.magileads.io` (no scheme), which an exact
+ * comparison with the browser's `https://beta.magileads.io` never matched —
+ * every Magileads user was then treated as a white label and sent to the free
+ * model. So a scheme, a path, a trailing slash, quotes and case all go.
+ */
 export function includedOrigins(value = process.env.AI_INCLUDED_ORIGINS) {
-  return (value?.trim() || DEFAULT_INCLUDED_ORIGINS).split(',').map(origin => origin.trim()).filter(Boolean);
+  return (value?.trim() || DEFAULT_INCLUDED_ORIGINS).split(',')
+    .map(entry => entry.trim().replace(/^["']+|["']+$/g, '').trim().toLowerCase())
+    .filter(Boolean)
+    .map(entry => entry === '*' ? entry : entry.replace(/^[a-z][a-z0-9+.-]*:\/\//, '').replace(/[/?#].*$/, ''));
 }
 
 /**
@@ -125,10 +135,12 @@ export function includedOrigins(value = process.env.AI_INCLUDED_ORIGINS) {
  */
 export function paidOriginAllowed(origin, allowed = includedOrigins()) {
   if (!origin) return true;
-  if (allowed.includes('*') || allowed.includes(origin)) return true;
+  if (allowed.includes('*')) return true;
   try {
-    const { hostname } = new URL(origin);
-    return hostname === 'localhost' || hostname === '127.0.0.1';
+    const { host, hostname } = new URL(origin);
+    // `host` keeps a port, for an entry written as `localhost:5100`.
+    return allowed.includes(host) || allowed.includes(hostname) ||
+      hostname === 'localhost' || hostname === '127.0.0.1';
   } catch {
     return false;
   }
