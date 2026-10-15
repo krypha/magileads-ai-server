@@ -10,8 +10,15 @@ test('uncapped testing requires a future deployment expiry and expires automatic
   for (const until of ['', 'invalid', '2026-09-29T11:59:59Z', '2026-09-29T12:00:00Z']) {
     assert.equal(usageLimitsEnabled(now, until), true);
   }
-  assert.equal(usageLimitsEnabled(now, '2026-09-29T13:00:00Z'), false);
-  assert.equal(usageLimitsEnabled(now + 3600_000, '2026-09-29T13:00:00Z'), true);
+  assert.equal(usageLimitsEnabled(now, '2026-09-29T13:00:00Z', 'test'), false);
+  assert.equal(usageLimitsEnabled(now + 3600_000, '2026-09-29T13:00:00Z', 'test'), true);
+});
+
+test('the production image ignores the opt-out, whatever date it carries', () => {
+  const now = Date.parse('2026-10-15T12:00:00Z');
+  assert.equal(usageLimitsEnabled(now, '2027-01-01T00:00:00Z', 'production'), true);
+  assert.equal(usageLimitsEnabled(now, '2027-01-01T00:00:00Z', 'development'), false);
+  assert.equal(usageLimitsEnabled(now, '2027-01-01T00:00:00Z', undefined), false);
 });
 
 test('temporary tests preserve long prompts and output, lift cost/workload caps, and retain authentication', { timeout: 20000 }, async () => {

@@ -81,6 +81,12 @@ npm run start:node       # node --env-file=.env src/server.js
 
 ### Tests sans plafonds d’usage
 
+**Jamais dans l’image de production** : avec `NODE_ENV=production` (posé par le
+`Dockerfile`), la variable est ignorée et les limites restent actives. La prod
+tournait avec une date future oubliée dans son environnement (constaté le
+15/10/2026) : aucune part par compte, la clé de la plateforme sans plafond.
+Le mode test sert donc en local ou sur un serveur lancé sans `NODE_ENV=production`.
+
 Définir `AI_TEST_UNLIMITED_UNTIL` dans l’environnement du **serveur IA**, avec une
 date future ISO UTC, puis redémarrer/redéployer. Exemple pour tester jusqu’au
 30 septembre 2026 à 23 h 59 à Madagascar :
