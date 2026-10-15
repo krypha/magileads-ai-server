@@ -181,8 +181,12 @@ Un budget par requête de **0,03 USD** (`AI_INCLUDED_MAX_REQUEST_USD`, maximum
 configurable 0,10 USD) couvre la réponse et tous les tours d’outils.
 Avant chaque appel, le serveur réserve une estimation prudente incluant le
 prompt système, les messages, les schémas des outils, leurs résultats et la
-sortie maximale. L’estimation utilise les octets UTF-8, une marge de framing et
-20 % de sécurité ; ce n’est pas un comptage exact par tokenizer. Le coût
+sortie maximale. L’estimation compte un token pour 3 octets UTF-8 (ce JSON et
+ce texte en font plutôt 3,5 à 4), plus une marge de framing et 20 % de
+sécurité ; ce n’est pas un comptage exact par tokenizer. Elle comptait un token
+par octet : les schémas des outils et le prompt système réservaient à eux
+seuls 0,022 USD sur 0,03, et le premier résultat d’outil un peu long bloquait la
+demande pour un coût réel dix fois moindre. Le coût
 `usage.cost` renvoyé par OpenRouter remplace ensuite la réservation ; s’il manque,
 elle est conservée. Le tour suivant est refusé s’il dépasse le budget. Les
 actions déjà effectuées et leurs cartes restent transmises ; aucun lancement

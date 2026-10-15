@@ -20,8 +20,13 @@ export const INCLUDED_MAX_PRICE = Object.freeze({
 export const FREE_MAX_PRICE = Object.freeze({ prompt: 0, completion: 0, request: 0 });
 
 /** A conservative reservation before EACH call, including the scope check.
- * UTF-8 bytes bound text token counts conservatively without a tokenizer
- * dependency. JSON framing + 1024 tokens covers message/tool serialization.
+ * Tokens are estimated as UTF-8 bytes / 3, without a tokenizer dependency:
+ * this JSON and French/English text runs at 3.5–4 bytes a token, so a third
+ * still over-counts. It used to count one token per BYTE, which reserved
+ * $0.022 of the $0.03 for the tool schemas and system prompt alone (55 kB),
+ * so one sizeable tool result blocked a request whose real cost was a tenth
+ * of the budget ("j'ai combien de contacts Monsieur", 2026-10-15).
+ * JSON framing + 1024 tokens covers message/tool serialization.
  * Actual provider usage releases unused reservations; missing usage retains it.
  * This ledger is discarded when the HTTP request ends.
  */
@@ -32,9 +37,10 @@ export class RequestBudget {
   }
 
   reserve(messages, tools, maxTokens, price = INCLUDED_MAX_PRICE) {
-    const inputTokens = Buffer.byteLength(JSON.stringify({ messages, tools }), 'utf8') + 1_024;
+    const bytes = Buffer.byteLength(JSON.stringify({ messages, tools }), 'utf8') + 1_024;
     // Even on free fallback, stop unbounded tool-result context growth.
-    if (inputTokens > 120_000) return null;
+    if (bytes > 120_000) return null;
+    const inputTokens = Math.ceil(bytes / 3);
     const amount = 1.20 * (inputTokens * price.prompt + maxTokens * price.completion) / 1_000_000;
     if (this.spent + amount > this.limit) return null;
     this.spent += amount;

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { checkIncludedBudget, paidBudgetAvailable, sharedPromptTooLarge, RequestBudget, FREE_MAX_PRICE } from './included-budget.js';
+import { checkIncludedBudget, paidBudgetAvailable, sharedPromptTooLarge, RequestBudget, FREE_MAX_PRICE, INCLUDED_REQUEST_USD } from './included-budget.js';
 
 test('only a verified daily key capped at three dollars unlocks paid included AI', () => {
   const status = { data: { limit: 3, limit_reset: 'daily', limit_remaining: 0.25 } };
@@ -42,4 +42,23 @@ test('budget includes tools, UTF-8, output and every round; only valid actual us
   assert.equal(budget.reserve(messages, [{ schema: 'x'.repeat(40000) }], 2048), null);
   assert.ok(budget.reserve(messages, [], 2048, FREE_MAX_PRICE));
   assert.equal(budget.reserve([{ role: 'tool', content: 'x'.repeat(120000) }], [], 2048, FREE_MAX_PRICE), null);
+});
+
+test('a real request with one sizeable tool result fits the per-request budget', async () => {
+  const { AI_TOOLS } = await import('./tools.js');
+  const { buildSystemPrompt } = await import('./prompt.js');
+  const messages = [
+    { role: 'system', content: buildSystemPrompt({ id: 1, level: 'user' }, { mode: 'chat' }) },
+    { role: 'user', content: 'J’ai combien de contacts avec civilité « Monsieur » en tout ?' },
+  ];
+  const budget = new RequestBudget();
+  // Round 1: tools and system prompt alone reserved $0.022 of $0.03 before.
+  const first = budget.reserve(messages, AI_TOOLS, 2048);
+  assert.ok(first && first.amount < 0.012);
+  budget.settle(first, { cost: 0.002 });
+  // Round 2 carries a 40 kB tool result: it used to be refused here.
+  const second = budget.reserve([...messages, { role: 'tool', content: 'x'.repeat(40_000) }], AI_TOOLS, 2048);
+  assert.ok(second);
+  budget.settle(second, { cost: 0.003 });
+  assert.ok(budget.spent < INCLUDED_REQUEST_USD);
 });
