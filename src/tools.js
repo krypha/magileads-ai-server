@@ -2,7 +2,7 @@ import { sanitize, forbiddenOperation } from './assistant-policy.js';
 import { applyConnectionDegrees, CONNECTION_DEGREES_SCHEMA, validConnectionDegrees, normalizeConnectionDegrees } from './linkedin-connections.js';
 import { usageLimitsEnabled } from './usage-policy.js';
 import { createDocument, DOCUMENT_TOOL } from './documents.js';
-import { EXTENDED_TOOLS, executeExtended } from './operations.js';
+import { EXTENDED_TOOLS, OPERATIONS, executeExtended } from './operations.js';
 import { CONTACT_COPY_FILTER_SCHEMA, copyContactsToList } from './contact-copy.js';
 import { PRM_TOOLS, PRM_TOOL_NAMES, executePrmTool } from './prm.js';
 import {
@@ -560,6 +560,12 @@ export async function executeTool(name, argsRaw, auth, context = {}) {
   // select it; direct callers default to the deployment's temporary test mode.
   const enforceLimits = context.enforceUsageLimits ?? usageLimitsEnabled();
   const cap = (value, max) => serializeResult(value, max, enforceLimits);
+  // A catalogue operation called as if it were a tool (seen live: the model
+  // called create_email_model directly, read "not allowed" and told the user
+  // templates were forbidden on their account). Say how to call it instead.
+  if (!forbiddenOperation(name) && !AI_TOOLS.some(tool => tool.function.name === name) && OPERATIONS.some(op => op.name === name)) {
+    return cap({ error: "not_a_tool", note: `${name} est une opération du catalogue, pas un outil : appelle run_operation avec {"operation":"${name}"} et ses params/body (voir discover_operations). Ce n’est pas un refus de droits.` });
+  }
   if (forbiddenOperation(name) || !AI_TOOLS.some(tool => tool.function.name === name)) return cap({ error: "operation_not_allowed" });
   let args = {};
   try {

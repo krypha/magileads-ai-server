@@ -34,6 +34,7 @@ import { usageLimitsEnabled } from './usage-policy.js';
 import { documentReceipt } from './documents.js';
 import { readPrmPageContext } from './prm.js';
 import { readImportTargeting } from './import-targeting.js';
+import { languageInstruction } from './language.js';
 
 const PORT = Number(process.env.PORT) || 8787;
 const AI_API_KEY = process.env.AI_API_KEY;
@@ -380,6 +381,10 @@ async function handleChat(req, res, cors) {
       ? `L’utilisateur vient de confirmer la cible dans le formulaire « Valider la cible » : c’est le clic final. Mets la cible à jour si besoin, puis lance la recherche avec l’outil ${approvedRunTool(approval) ?? 'run_* correspondant'}, sans redemander de confirmation ni renvoyer vers le formulaire.`
       : 'Cette interface utilise un formulaire de confirmation distinct après la proposition de cible. Un simple « go » écrit dans le chat ne lance rien : invite l’utilisateur à confirmer dans le formulaire « Valider la cible », à côté de la conversation. Seul le clic final autorise un outil run_*.' }] : []),
     ...clientMessages];
+  // Next to the question, where a model reads it (see language.js) — before
+  // it, so the conversation still ends on the user's message.
+  const language = languageInstruction(clientMessages.at(-1).content);
+  if (language) convo.splice(convo.length - 1, 0, { role: 'system', content: language });
   if (cappedIncluded) convo[0].content += '\nIA INCLUSE : au plus trois campagnes en audit détaillé et douze appels d’outils par demande. Pour un audit global, demande de choisir une à trois campagnes ou de connecter une clé IA personnelle. Les listes et résumés globaux restent disponibles. Si le serveur bloque le volume, arrête les outils et invite à réduire le périmètre.';
   // A ledger, not a gate: it adds up what this request costs (the real
   // usage.cost, or the estimate when none comes back) for the account's daily
@@ -494,13 +499,16 @@ async function handleChat(req, res, cors) {
   // "combien d'emails puis-je encore envoyer" spent its twelve calls and the
   // user got an error after twenty seconds.
   let volumeReached = false;
+  // A model that ran tools and then stopped without a word (seen live on
+  // "supprime ma liste …"): it gets one round that must write.
+  let mustAnswer = false;
   // What has been written so far, to keep the text of two rounds apart.
   let written = '';
 
   try {
     // All assistant surfaces answer without a preliminary topic classifier.
     chatRounds: for (let round = 0; !closed && !failed; round++) {
-      const finalAnswer = round >= maxRounds || volumeReached;
+      const finalAnswer = round >= maxRounds || volumeReached || mustAnswer;
       if (finalAnswer) convo.push({ role: 'system', content:
         'Termine maintenant par le résultat demandé à partir des données réellement obtenues. Aucun nouvel outil n’est autorisé. ' +
         (volumeReached ? 'La limite de volume de l’IA incluse est atteinte pour cette demande : si la réponse est partielle, dis-le en une phrase et propose de réduire le périmètre ou de connecter une clé IA personnelle. ' : '') +
@@ -571,7 +579,14 @@ async function handleChat(req, res, cors) {
         sendEvent('assistant.error', { code: 'targeting_update_missing' });
         break;
       }
-      if (!calls.length) break; // the model produced its final answer
+      if (!calls.length) {
+        // Silence after tools reads as a hang; one more round must write.
+        if (!assistantContent.trim() && !written.trim() && round > 0 && !finalAnswer) {
+          mustAnswer = true;
+          continue;
+        }
+        break; // the model produced its final answer
+      }
       produced = true;
 
       convo.push({
