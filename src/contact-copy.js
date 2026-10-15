@@ -1,4 +1,4 @@
-import { getContactListProfile, listDataFields, listContactListContacts, request } from './magileads.js';
+import { getContactListProfile, listDataFields, listContactListContacts, request, searchAllContacts } from './magileads.js';
 import { hasSecret } from './assistant-policy.js';
 
 const OPERATORS = ['equals', 'not_equals', 'contains', 'not_contains', 'start_with', 'end_with', 'does_exist', 'does_not_exist',
@@ -41,41 +41,76 @@ function profile(response, expected) {
   return data && id(data.id) === expected ? data : null;
 }
 
-/** Copy the entire API-filtered segment, never the model's sample of contacts. */
+/**
+ * Copy the entire API-filtered segment, never the model's sample of contacts.
+ *
+ * Without `source_list_id` the segment is the whole account ("Tous mes
+ * contacts"): counted by POST /contact-lists/contacts/search and copied by
+ * POST /contact-lists/contacts/copy/{destination}, which needs a destination
+ * that exists, so a new one is created first. Before this the model copied
+ * list by list and ran out of tool calls ("copie les Monsieur de toutes mes
+ * listes", 2026-10-15).
+ */
 export async function copyContactsToList(args, auth, { copyAttempts } = {}) {
   if (!object(args) || hasSecret(args) || !only(args, ['source_list_id', 'filter', 'destination_list_id', 'new_list_name'])) return { error: 'invalid_arguments' };
-  const sourceId = id(args.source_list_id), destinationId = args.destination_list_id == null ? null : id(args.destination_list_id);
+  const accountWide = args.source_list_id == null;
+  const sourceId = accountWide ? null : id(args.source_list_id), destinationId = args.destination_list_id == null ? null : id(args.destination_list_id);
   const hasName = args.new_list_name != null;
-  if (!sourceId || (args.destination_list_id != null && !destinationId) ||
+  if ((!accountWide && !sourceId) || (args.destination_list_id != null && !destinationId) ||
     (hasName && (typeof args.new_list_name !== 'string' || !args.new_list_name.trim()))) return { error: 'invalid_copy_destination' };
-  if (destinationId === sourceId) return { error: 'cannot_copy_into_source_list' };
+  if (destinationId && destinationId === sourceId) return { error: 'cannot_copy_into_source_list' };
   if (destinationId && hasName) return { error: 'choose_existing_destination_or_new_list' };
   let filter;
   const fields = new Set();
   try { filter = normalizeFilter(args.filter, fields); } catch { return { error: 'invalid_contact_filter', note: 'Un filtre non vide, avec les ID numériques des champs et des opérateurs valides, est obligatoire.' }; }
 
   const [sourceResponse, fieldsResponse, destinationResponse] = await Promise.all([
-    getContactListProfile(auth, sourceId), listDataFields(auth),
+    accountWide ? null : getContactListProfile(auth, sourceId), listDataFields(auth),
     destinationId ? getContactListProfile(auth, destinationId) : null,
   ]);
-  const source = profile(sourceResponse, sourceId), destination = destinationId ? profile(destinationResponse, destinationId) : null;
+  const source = accountWide ? { name: 'Tous les contacts du compte' } : profile(sourceResponse, sourceId);
+  const destination = destinationId ? profile(destinationResponse, destinationId) : null;
   if (!source) return { error: 'source_list_unavailable' };
   if (destinationId && !destination) return { error: 'destination_list_unavailable' };
   const knownFields = fieldsResponse.ok && Array.isArray(fieldsResponse.data?.data_fields_list)
     ? new Set(fieldsResponse.data.data_fields_list.map(field => id(field.id))) : null;
   if (!knownFields || [...fields].some(field => !knownFields.has(field))) return { error: 'unknown_contact_field', note: 'Relis list_contact_fields et utilise ses ID numériques.' };
 
-  const preview = await listContactListContacts(auth, sourceId, { per_page: 1, filter });
+  const preview = accountWide
+    ? await searchAllContacts(auth, { per_page: 1, filter })
+    : await listContactListContacts(auth, sourceId, { per_page: 1, filter });
   const rawCount = preview.data?.number_of_results ?? preview.data?.number_of_contacts;
   const count = rawCount === undefined || rawCount === null || typeof rawCount === 'boolean' || rawCount === '' ? NaN : Number(rawCount);
   if (!preview.ok || !Number.isSafeInteger(count) || count < 0) return { error: 'copy_preview_unavailable' };
   if (count === 0) return { status: 'no_matches', source_list_id: sourceId, matched_contacts: 0, note: 'Aucun contact ne correspond au filtre : aucune liste créée et aucune copie lancée.' };
 
   const name = hasName ? args.new_list_name.trim() : null;
-  const key = JSON.stringify([sourceId, destinationId, name, filter]);
+  const key = JSON.stringify([sourceId ?? 'account', destinationId, name, filter]);
   if (copyAttempts?.has(key)) return { error: 'copy_already_requested', note: 'Cette copie a déjà été demandée dans cette réponse. Ne la relance pas ; utilise le résultat précédent ou vérifie les jobs.' };
   copyAttempts?.add(key);
-  const body = { contacts_selection: { contact_ids: [], filter, excluded_contact_ids: [], reverse_selection: false },
+  const selection = { contact_ids: [], filter, excluded_contact_ids: [], reverse_selection: false };
+
+  if (accountWide) {
+    // The account-wide route copies INTO a list and does not create one.
+    let targetId = destinationId;
+    let targetName = typeof destination?.name === 'string' ? destination.name : null;
+    if (!targetId) {
+      targetName = name ?? `Copie de contacts — ${new Date().toISOString().slice(0, 10)}`;
+      const created = await request('/contact-lists', { auth, method: 'POST', body: { name: targetName } });
+      targetId = id(created.data?.contact_list_id ?? created.data?.contact_list_profile?.id);
+      if (!created.ok || !targetId) return { error: created.errorKey || 'list_creation_failed', status_code: created.status,
+        note: 'La nouvelle liste n’a pas pu être créée : aucune copie lancée.' };
+    }
+    const copied = await request(`/contact-lists/contacts/copy/${targetId}`, { auth, method: 'POST', body: { contacts_selection: selection } });
+    if (!copied.ok) return { error: copied.errorKey || 'copy_failed', status_code: copied.status, list_id: targetId,
+      note: destinationId ? 'Ne relance pas automatiquement : vérifie les jobs avant une nouvelle tentative.'
+        : 'La liste a été créée mais la copie a échoué. Ne relance pas automatiquement : vérifie les jobs avant une nouvelle tentative.' };
+    return { operation: 'copy_contacts_to_list', status: 'accepted', source_list_id: null, source_list_name: source.name,
+      list_id: targetId, list_name: targetName, matched_contacts: count, criteria_applied: { filter }, warnings: [],
+      note: 'Copie lancée en arrière-plan depuis tous les contacts du compte correspondant au filtre. Le comptage est l’aperçu au lancement (un contact présent dans plusieurs listes y compte une fois par liste), pas le nombre déjà copié ; les résultats définitifs sont dans les jobs de la destination. Ne relance pas.' };
+  }
+
+  const body = { contacts_selection: selection,
     ...(destinationId ? { contact_list_id_destination: destinationId } : {}) };
   const copied = await request(`/contact-lists/${sourceId}/copy`, { auth, method: 'POST', body });
   if (!copied.ok) return { error: copied.errorKey || 'copy_failed', status_code: copied.status,

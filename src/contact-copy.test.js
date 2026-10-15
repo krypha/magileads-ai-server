@@ -22,6 +22,13 @@ function fixture(t, options = {}) {
       { id: 3, name: 'Email', identifier: 'email' },
     ] });
     if (path === '/contact-lists/69964/contacts') return Response.json(options.preview ?? { state: true, number_of_results: 160, results: [{ id: 100 }] });
+    // The whole account ("Tous mes contacts"): its count, a new list, its copy.
+    if (path === '/contact-lists/contacts/search') return Response.json({ state: true, number_of_results: 135759, results: [{ id: 100 }] });
+    if (init.method === 'POST' && path === '/contact-lists') {
+      lists.set(999, { id: 999, name: body.name, number_of_contacts: 0 });
+      return Response.json({ state: true, contact_list_id: 999 });
+    }
+    if (path.startsWith('/contact-lists/contacts/copy/')) return Response.json(options.copy ?? { state: true });
     if (path === '/contact-lists/69964/copy') {
       if (!body.contact_list_id_destination) lists.set(888, { id: 888, name: 'Copie de DAF Paris', number_of_contacts: 0 });
       return Response.json(options.copy ?? { state: true, contact_list_id: body.contact_list_id_destination ?? 888 });
@@ -47,7 +54,8 @@ test('filtered copy is advertised directly and in the lists catalogue, with list
   const { run } = fixture(t);
   const tool = AI_TOOLS.find(tool => tool.function.name === 'copy_contacts_to_list');
   assert.ok(tool);
-  assert.deepEqual(tool.function.parameters.required, ['source_list_id', 'filter']);
+  // No source list means the whole account, so only the filter is required.
+  assert.deepEqual(tool.function.parameters.required, ['filter']);
   const catalog = await run({ group: 'lists' }, 'discover_operations');
   assert.ok(catalog.operations.some(op => op.name === 'copy_contacts_to_list' && op.fields.includes('contacts_selection')));
   assert.ok(CREATES_LIST.includes('copy_contacts_to_list'));
@@ -67,6 +75,30 @@ test('a new named list receives the whole filtered segment, not the one-row prev
   assert.deepEqual(writes(calls)[1], { path: '/contact-lists/888', method: 'PUT', options: {}, body: { name: 'DAF Paris — Messieurs' } });
   assert.equal(changesData('copy_contacts_to_list', JSON.stringify(result)), true);
   assert.deepEqual(cardsForTool('copy_contacts_to_list', JSON.stringify(result)), [{ kind: 'lists', items: [{ id: 888, name: 'DAF Paris — Messieurs' }], purpose: 'created' }]);
+});
+
+test('without a source list the whole account is copied in one call, into a list created first', async t => {
+  const { calls, run } = fixture(t);
+  const result = await run({ source_list_id: undefined, new_list_name: 'Monsieur - all list' });
+  assert.equal(result.status, 'accepted');
+  assert.equal(result.source_list_id, null);
+  assert.equal(result.matched_contacts, 135759);
+  assert.equal(result.list_id, 999); assert.equal(result.list_name, 'Monsieur - all list');
+  assert.deepEqual(writes(calls).map(call => [call.method, call.path]), [
+    ['POST', '/contact-lists/contacts/search'],
+    ['POST', '/contact-lists'],
+    ['POST', '/contact-lists/contacts/copy/999'],
+  ]);
+  assert.deepEqual(writes(calls)[1].body, { name: 'Monsieur - all list' });
+  assert.deepEqual(writes(calls)[2].body, { contacts_selection: { contact_ids: [], filter, excluded_contact_ids: [], reverse_selection: false } });
+  assert.deepEqual(cardsForTool('copy_contacts_to_list', JSON.stringify(result)), [{ kind: 'lists', items: [{ id: 999, name: 'Monsieur - all list' }], purpose: 'created' }]);
+});
+
+test('an account-wide copy into an existing list creates nothing', async t => {
+  const { calls, run } = fixture(t);
+  const result = await run({ source_list_id: undefined, destination_list_id: 777 });
+  assert.equal(result.list_id, 777); assert.equal(result.list_name, 'Destination');
+  assert.deepEqual(writes(calls).map(call => call.path), ['/contact-lists/contacts/search', '/contact-lists/contacts/copy/777']);
 });
 
 test('an existing destination is verified and receives one copy without being renamed', async t => {

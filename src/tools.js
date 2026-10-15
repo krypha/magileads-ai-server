@@ -98,9 +98,9 @@ export const AI_TOOLS = [
     type: 'function',
     function: {
       name: 'copy_contacts_to_list',
-      description: 'Copier TOUS les contacts correspondant à un filtre vers une liste existante ou nouvelle, sans supprimer ni limiter aux échantillons. Résoudre la source, les champs et la destination ; demander la destination si ambiguë. Copie asynchrone.',
-      parameters: { type: 'object', additionalProperties: false, required: ['source_list_id', 'filter'], properties: {
-        source_list_id: { type: 'number', description: 'ID réel de la liste source.' },
+      description: 'Copier TOUS les contacts correspondant à un filtre vers une liste existante ou nouvelle, sans supprimer ni limiter aux échantillons. Avec source_list_id : depuis cette liste. SANS source_list_id : depuis TOUS les contacts du compte, toutes listes confondues, en un seul appel — pour « toutes mes listes » ou « en tout », ne copie jamais liste par liste. Résoudre les champs et la destination ; demander la destination si ambiguë. Copie asynchrone.',
+      parameters: { type: 'object', additionalProperties: false, required: ['filter'], properties: {
+        source_list_id: { type: 'number', description: 'ID réel de la liste source. À omettre pour copier depuis tout le compte.' },
         filter: CONTACT_COPY_FILTER_SCHEMA,
         destination_list_id: { type: 'number', description: 'ID d’une liste existante du compte. Omettre pour créer une nouvelle liste.' },
         new_list_name: { type: 'string', description: 'Nom explicitement demandé pour la nouvelle liste ; exclusif avec destination_list_id. Sans nom, Magileads nomme la copie.' },
