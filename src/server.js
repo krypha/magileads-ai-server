@@ -660,6 +660,41 @@ async function handleProviders(req, res, cors) {
   }, cors);
 }
 
+/**
+ * How much of today's included-AI share this account has left, for the
+ * assistant's "X % restant" meter. Not counted (`counted: false`) for anyone
+ * the share does not apply to: administrators, and every account while the
+ * test opt-out is on. `reason` says why the paid model is not available
+ * whatever the share says: a white label's page, the shared key's $3 spent,
+ * or a counter that cannot be read.
+ */
+async function handleUsage(req, res, cors) {
+  const caller = await authenticate(req, res, cors);
+  if (!caller) return;
+  const { profile, accountId } = caller;
+  if (profile.level !== 'user' || !usageLimitsEnabled()) return json(res, 200, { ok: true, counted: false }, cors);
+
+  const tomorrow = new Date();
+  tomorrow.setUTCHours(24, 0, 0, 0);
+  const base = { ok: true, counted: true, limit_usd: dailyQuota.limit, resets_at: tomorrow.toISOString() };
+  if (!paidOriginAllowed(req.headers.origin)) {
+    return json(res, 200, { ...base, spent_usd: null, remaining_ratio: 0, reason: 'white_label' }, cors);
+  }
+  const spent = await dailyQuota.spent(accountId);
+  if (spent === null) return json(res, 200, { ...base, spent_usd: null, remaining_ratio: null, reason: 'quota_unavailable' }, cors);
+  const remainingRatio = Math.max(0, Math.min(1, (dailyQuota.limit - spent) / dailyQuota.limit));
+  // The account's share means nothing once the key's $3 are gone.
+  const paidKey = process.env.AI_INCLUDED_API_KEY || AI_API_KEY;
+  const reason = remainingRatio === 0 ? 'user_daily_budget'
+    : await checkIncludedBudget(paidKey) ? null : 'shared_budget';
+  return json(res, 200, {
+    ...base,
+    spent_usd: Math.round(spent * 10_000) / 10_000,
+    remaining_ratio: Math.round(remainingRatio * 1_000) / 1_000,
+    reason,
+  }, cors);
+}
+
 async function handleModels(req, res, cors, url) {
   const caller = await authenticate(req, res, cors);
   if (!caller) return;
@@ -728,6 +763,9 @@ const server = http.createServer(async (req, res) => {
   }
   if (url.pathname === '/ai/models' && req.method === 'GET') {
     return handleModels(req, res, cors, url);
+  }
+  if (url.pathname === '/ai/usage' && req.method === 'GET') {
+    return handleUsage(req, res, cors);
   }
 
   if (req.method === "POST" && url.pathname === "/ai/chat") {

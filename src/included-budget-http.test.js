@@ -133,6 +133,21 @@ test('each account has its own daily share, and a white label answers on the fre
     assert.match(whiteLabelText, /"fallback_reason":"white_label"/);
     assert.equal(calls[4].body.model, 'fixture/model:free');
     assert.equal(calls[4].key, 'Bearer free-key');
+
+    // The meter: what is left of each account's share, and why it is not paid.
+    const usage = async (token, origin) => (await fetch(`http://127.0.0.1:${port}/ai/usage`, {
+      headers: { Authorization: `Bearer ${token}`, ...(origin ? { Origin: origin } : {}) },
+    })).json();
+    const exhausted = await usage('user-token', 'https://beta.magileads.io');
+    assert.equal(exhausted.counted, true);
+    assert.equal(exhausted.remaining_ratio, 0);
+    assert.equal(exhausted.reason, 'user_daily_budget');
+    assert.match(exhausted.resets_at, /T00:00:00\.000Z$/);
+    const partly = await usage('other-token', 'https://beta.magileads.io');
+    assert.equal(partly.spent_usd, 0.05);
+    assert.equal(partly.remaining_ratio, 0.167);
+    assert.equal(partly.reason, null);
+    assert.equal((await usage('other-token', 'https://app.surleads.com')).reason, 'white_label');
   } finally {
     child.kill();
     await new Promise(resolve => upstream.close(resolve));

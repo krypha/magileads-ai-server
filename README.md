@@ -233,6 +233,15 @@ remet la clé à zéro), les autres comptes gardent le modèle payant.
 | `quota_unavailable` | le compteur (Redis) ne répond pas : jamais d’appel payant non compté |
 | `model_unavailable` | le modèle payant a refusé (402/429/…) et le suivant a pris le relais |
 
+**`GET /ai/usage`** (mêmes en-têtes d’authentification que `/ai/chat`) dit ce
+qu’il reste de la part du jour, pour le compteur « X % restants » de
+l’assistant : `{counted, limit_usd, spent_usd, remaining_ratio, resets_at,
+reason}`. `counted: false` quand aucune part ne s’applique (administrateur,
+tests sans plafonds) ; `reason` reprend les causes ci-dessus sauf
+`model_unavailable`. Avec une part non épuisée, la route vérifie aussi la clé à
+3 USD (`GET /key` d’OpenRouter) : une part intacte ne veut rien dire si la clé
+est vide.
+
 **Marques blanches.** Leurs utilisateurs sont censés utiliser leur propre clé
 (intégration personnelle) ; tant qu’une clé par marque blanche n’existe pas,
 une origine absente de `AI_INCLUDED_ORIGINS` n’atteint jamais la clé payante.
