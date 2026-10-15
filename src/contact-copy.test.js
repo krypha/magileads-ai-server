@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { AI_TOOLS, CREATES_LIST, createsListForTool, executeTool } from './tools.js';
 import { cardsForTool, changesData } from './cards.js';
+import { userConfirmed } from './contact-copy.js';
 
 const filter = { mode: 'and', values: [{ field_name: '2', type: 'equals', value: 'Monsieur' }] };
 const auth = { accessToken: 'caller-fixture', apiKey: 'switch-fixture' };
@@ -43,7 +44,7 @@ function fixture(t, options = {}) {
     return Response.json({ state: false, state_message: 'forbidden' }, { status: 403 });
   };
   t.after(() => { global.fetch = originalFetch; });
-  const context = { enforceUsageLimits: false, copyAttempts: new Set() };
+  const context = { enforceUsageLimits: false, copyAttempts: new Set(), lastUserMessage: options.lastUserMessage ?? 'Copie les contacts.' };
   const run = async (args = {}, name = 'copy_contacts_to_list') => JSON.parse(await executeTool(name, JSON.stringify(
     name === 'run_operation' ? args : { source_list_id: 69964, filter, ...args }), auth, context));
   return { calls, run };
@@ -77,9 +78,20 @@ test('a new named list receives the whole filtered segment, not the one-row prev
   assert.deepEqual(cardsForTool('copy_contacts_to_list', JSON.stringify(result)), [{ kind: 'lists', items: [{ id: 888, name: 'DAF Paris — Messieurs' }], purpose: 'created' }]);
 });
 
+test('a copy above 5,000 contacts waits for the user’s own yes, whatever the model sends', async t => {
+  const { calls, run } = fixture(t, { lastUserMessage: 'Copie les Monsieur de toutes mes listes.' });
+  // Without a yes from the user, confirmed:true from the model changes nothing.
+  for (const args of [{}, { confirmed: true }]) {
+    const result = await run({ source_list_id: undefined, new_list_name: 'Monsieur - all list', ...args });
+    assert.equal(result.status, 'confirmation_required');
+    assert.equal(result.matched_contacts, 135759);
+  }
+  assert.deepEqual(writes(calls).map(call => call.path), ['/contact-lists/contacts/search', '/contact-lists/contacts/search']);
+});
+
 test('without a source list the whole account is copied in one call, into a list created first', async t => {
-  const { calls, run } = fixture(t);
-  const result = await run({ source_list_id: undefined, new_list_name: 'Monsieur - all list' });
+  const { calls, run } = fixture(t, { lastUserMessage: 'Oui, vas-y.' });
+  const result = await run({ source_list_id: undefined, new_list_name: 'Monsieur - all list', confirmed: true });
   assert.equal(result.status, 'accepted');
   assert.equal(result.source_list_id, null);
   assert.equal(result.matched_contacts, 135759);
@@ -94,9 +106,18 @@ test('without a source list the whole account is copied in one call, into a list
   assert.deepEqual(cardsForTool('copy_contacts_to_list', JSON.stringify(result)), [{ kind: 'lists', items: [{ id: 999, name: 'Monsieur - all list' }], purpose: 'created' }]);
 });
 
+test('the yes is read from the user’s own words, after any screen context', () => {
+  for (const yes of ['oui', 'Oui, vas-y', 'OK', 'je confirme', 'yes please', '[Screen context from the app]\nPage: lists.\n\nOui']) {
+    assert.equal(userConfirmed(yes), true, yes);
+  }
+  for (const no of ['non', 'Copie les Monsieur', 'pas encore', 'Ouistreham', '', undefined]) {
+    assert.equal(userConfirmed(no), false, String(no));
+  }
+});
+
 test('an account-wide copy into an existing list creates nothing', async t => {
-  const { calls, run } = fixture(t);
-  const result = await run({ source_list_id: undefined, destination_list_id: 777 });
+  const { calls, run } = fixture(t, { lastUserMessage: 'oui' });
+  const result = await run({ source_list_id: undefined, destination_list_id: 777, confirmed: true });
   assert.equal(result.list_id, 777); assert.equal(result.list_name, 'Destination');
   assert.deepEqual(writes(calls).map(call => call.path), ['/contact-lists/contacts/search', '/contact-lists/contacts/copy/777']);
 });

@@ -51,8 +51,23 @@ function profile(response, expected) {
  * list by list and ran out of tool calls ("copie les Monsieur de toutes mes
  * listes", 2026-10-15).
  */
-export async function copyContactsToList(args, auth, { copyAttempts } = {}) {
-  if (!object(args) || hasSecret(args) || !only(args, ['source_list_id', 'filter', 'destination_list_id', 'new_list_name'])) return { error: 'invalid_arguments' };
+/** Above this many contacts a copy waits for the user's explicit yes. */
+export const COPY_CONFIRM_ABOVE = 5_000;
+const AFFIRMATIVE = /^(?:oui|ok|okay|d['’]accord|je confirme|confirm[ée]?|vas[- ]y|go|yes|yep|sure|confirm(?:ed)?|ja|sí|si|sì)\b/i;
+
+/**
+ * Whether the user's own last message says yes. The question it answers was
+ * the assistant's ("copier 135 759 contacts ?"), so this is the one word the
+ * MODEL cannot supply: it reads the request, not the tool arguments. Screen
+ * context sent with the message is skipped.
+ */
+export function userConfirmed(message) {
+  const text = String(message ?? '').split(/\n\s*\n/).map(part => part.trim()).filter(Boolean).at(-1) ?? '';
+  return AFFIRMATIVE.test(text);
+}
+
+export async function copyContactsToList(args, auth, { copyAttempts, lastUserMessage } = {}) {
+  if (!object(args) || hasSecret(args) || !only(args, ['source_list_id', 'filter', 'destination_list_id', 'new_list_name', 'confirmed'])) return { error: 'invalid_arguments' };
   const accountWide = args.source_list_id == null;
   const sourceId = accountWide ? null : id(args.source_list_id), destinationId = args.destination_list_id == null ? null : id(args.destination_list_id);
   const hasName = args.new_list_name != null;
@@ -83,6 +98,14 @@ export async function copyContactsToList(args, auth, { copyAttempts } = {}) {
   const count = rawCount === undefined || rawCount === null || typeof rawCount === 'boolean' || rawCount === '' ? NaN : Number(rawCount);
   if (!preview.ok || !Number.isSafeInteger(count) || count < 0) return { error: 'copy_preview_unavailable' };
   if (count === 0) return { status: 'no_matches', source_list_id: sourceId, matched_contacts: 0, note: 'Aucun contact ne correspond au filtre : aucune liste créée et aucune copie lancée.' };
+  // A large copy waits for a yes in the user's own last message. Seen live:
+  // asked for civility « M. » (1 contact), the model decided « Monsieur » was
+  // meant and launched 135,759 in the same turn.
+  if (count > COPY_CONFIRM_ABOVE && !(args.confirmed === true && userConfirmed(lastUserMessage))) {
+    return { status: 'confirmation_required', source_list_id: sourceId, source_list_name: source.name, matched_contacts: count,
+      criteria_applied: { filter },
+      note: `Aucune copie lancée. Annonce le nombre (${count}) et le critère exact, puis demande à l’utilisateur de confirmer. Rappelle copy_contacts_to_list avec confirmed:true seulement après son « oui » ; s’il voulait un autre critère, corrige-le.` };
+  }
 
   const name = hasName ? args.new_list_name.trim() : null;
   const key = JSON.stringify([sourceId ?? 'account', destinationId, name, filter]);

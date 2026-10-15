@@ -104,6 +104,7 @@ export const AI_TOOLS = [
         filter: CONTACT_COPY_FILTER_SCHEMA,
         destination_list_id: { type: 'number', description: 'ID d’une liste existante du compte. Omettre pour créer une nouvelle liste.' },
         new_list_name: { type: 'string', description: 'Nom explicitement demandé pour la nouvelle liste ; exclusif avec destination_list_id. Sans nom, Magileads nomme la copie.' },
+        confirmed: { type: 'boolean', description: 'true seulement quand l’utilisateur vient de répondre « oui » à ta question sur le nombre de contacts à copier (au-delà de 5 000, le serveur l’exige et vérifie son message).' },
       } },
     },
   },

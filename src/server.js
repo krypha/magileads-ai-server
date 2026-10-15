@@ -428,6 +428,8 @@ async function handleChat(req, res, cors) {
   let launchAttempted = false;
   let targetingReady = false;
   const toolContext = { profile, enforceUsageLimits, copyAttempts: new Set(),
+    // What the user wrote last, for the confirmations only they can give.
+    lastUserMessage: clientMessages.at(-1).content,
     prmPage: readPrmPageContext(clientMessages.at(-1).content),
     targeting: importMode ? readImportTargeting(clientMessages) : null };
 

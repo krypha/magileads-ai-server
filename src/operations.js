@@ -161,7 +161,7 @@ export async function executeExtended(name, args, auth, context = {}) {
       ['contact_ids', 'excluded_contact_ids'].some(key => selection[key] != null && (!Array.isArray(selection[key]) || selection[key].length)) ||
       (selection.reverse_selection != null && selection.reverse_selection !== false)) return { error: 'invalid_contact_selection' };
     return copyContactsToList({ source_list_id: params.id, filter: selection.filter,
-      destination_list_id: body.contact_list_id_destination }, auth, context);
+      destination_list_id: body.contact_list_id_destination, ...(body.confirmed === true ? { confirmed: true } : {}) }, auth, context);
   }
   if (op.name === 'schedule_campaign' || op.name === 'update_campaign_schedule') {
     let schedule = body;
