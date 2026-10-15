@@ -32,13 +32,16 @@ add('archive_campaign', 'campaigns', 'PUT', '/workflows/:workflow_id/programmati
 add('unarchive_campaign', 'campaigns', 'PUT', '/workflows/:workflow_id/programmation/:id/unarchive');
 add('get_global_reporting', 'reporting', 'GET', '/statistics/global');
 for (const [name, path] of [['get_period_reporting', '/statistics/global/detailed'], ['get_daily_reporting', '/statistics/date/detailed']]) {
-  add(name, 'reporting', 'POST', path, ['date_range', 'limit_to_programmation_ids', 'limit_to_integration_ids'], ['date_range']);
+  add(name, 'reporting', 'POST', path, ['date_range', 'limit_to_programmation_ids', 'limit_to_integration_ids'], ['date_range'],
+    `date_range={"start_date":"AAAA-MM-JJ","end_date":"AAAA-MM-JJ"} (dates incluses, calculées depuis la date du jour) ; ${name === 'get_daily_reporting' ? 'une ligne par jour, 60 jours au plus' : 'un total sur la période, 366 jours au plus'}. limit_to_programmation_ids et limit_to_integration_ids : tableaux d’ID, omis ou vides = tout le compte.`);
 }
 for (const [channel, path] of Object.entries({ email: '/models/email', linkedin_message: '/models/linkedin/message', linkedin_invitation: '/models/linkedin/invitation', sms: '/models/sms', vms: '/models/smv', signature: '/email-signatures' })) {
   const fields = ['name', 'subject', 'text', 'html', 'json_template', 'file_id', 'is_template', 'tags_ids', 'folder_id'];
   add(`list_${channel}_models`, 'models', 'GET', path);
   add(`get_${channel}_model`, 'models', 'GET', `${path}/:id`);
-  add(`create_${channel}_model`, 'models', 'POST', path, fields, ['name']);
+  add(`create_${channel}_model`, 'models', 'POST', path, fields, ['name'], channel === 'email'
+    ? 'Envoyer name, subject, html (le corps en HTML simple, <p>…</p>) ET text (le même corps sans balises) ; variables {%first_name%}, {%company%}…'
+    : channel === 'signature' ? 'Envoyer name, html et text.' : 'Envoyer name et text (le message) ; variables {%first_name%}…');
   add(`update_${channel}_model`, 'models', 'PUT', `${path}/:id`, fields);
 }
 for (const [name, path, fields] of [['tag', '/tags', ['name', 'color']], ['folder', '/folders', ['name', 'type', 'parent_id']], ['data_field', '/data-fields', ['name', 'possible_values']]]) {
@@ -209,6 +212,10 @@ export async function executeExtended(name, args, auth, context = {}) {
     }
   }
   const r = await request(path, { auth, method: op.method, ...(op.method !== 'GET' ? { body: Object.keys(payload).length ? payload : undefined } : {}) });
-  if (!r.ok) return { error: r.errorKey || 'operation_failed', status: r.status };
+  // The API's validation messages say what to fix ("The date range.start
+  // date field is required…"); without them the model guessed the period's
+  // shape 25 times on "mes statistiques des 7 derniers jours".
+  const details = Array.isArray(r.data?.errors) ? sanitize(r.data.errors.filter(item => typeof item === 'string').slice(0, 5)) : null;
+  if (!r.ok) return { error: r.errorKey || 'operation_failed', status: r.status, ...(details?.length ? { details } : {}) };
   return { operation: op.name, status: 'accepted', data: sanitize(r.data), resource_id: params.id };
 }

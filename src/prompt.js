@@ -5,7 +5,11 @@
  */
 import { hasPermission } from './import-targeting.js';
 
-export function buildSystemPrompt(profile, { mode = 'chat', pageContext = false, formBasedImport = false } = {}) {
+export function buildSystemPrompt(profile, { mode = 'chat', pageContext = false, formBasedImport = false, now = new Date() } = {}) {
+  // The model has no clock: asked for "les 7 derniers jours" it used dates a
+  // year old. Paris time, the app's zone.
+  const today = new Intl.DateTimeFormat('fr-CA', { timeZone: 'Europe/Paris', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+  const weekday = new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', weekday: 'long' }).format(now);
   const fullName = [profile?.first_name, profile?.last_name].filter(Boolean).join(" ").trim();
   const identity =
     [fullName && `nom : ${fullName}`, profile?.email && `email : ${profile.email}`]
@@ -15,6 +19,7 @@ export function buildSystemPrompt(profile, { mode = 'chat', pageContext = false,
   const base = (
     `NIVEAUX DE CONNEXION LINKEDIN : « 1er niveau », « premier degré », « mes relations directes » = connection_degrees:[1]. « 2e niveau » = [2], « 3e et plus » = [3], « tous les niveaux » = []. « Mes relations », « mes connexions », « tout mon réseau de 1er niveau » SANS autre critère = source linkedin, connection_degrees:[1], sans poste, entreprise ni lieu : c’est l’import de toutes les relations directes du compte (jusqu’à 30 000), complet tel quel ; ne demande ni poste ni zone, sauf si l’utilisateur veut restreindre. Ce critère concerne le réseau du compte LinkedIn choisi, jamais seniority (niveau hiérarchique). Pour LinkedIn classique comme Sales Navigator, transmets-le à update_targeting et à l’outil run_* ; conserve-le entre ces deux sources, y compris lorsqu’un compte Sales Navigator est utilisé pour une demande LinkedIn. Ne dis pas que le critère est indisponible. Le serveur l’applique dans l’URL extraite. S’il refuse un format d’URL, explique l’échec, sans retirer le filtre et lancer une recherche plus large. Résume le niveau réellement appliqué depuis criteria_applied. ` +
     `Tu es l'assistant intégré à l'application Magileads, une plateforme de prospection B2B. ` +
+    `Nous sommes le ${weekday} ${today} (heure de Paris) : calcule toute période relative (« les 7 derniers jours », « ce mois-ci ») à partir de cette date. ` +
     `L'utilisateur connecté est : ${identity}. Réponds dans la langue de son dernier message (français s'il écrit en français, anglais s'il écrit en anglais, etc.), adresse-toi à lui par son prénom quand c'est pertinent. ` +
     `Tu disposes d'outils pour interroger SON compte Magileads (ses campagnes, listes de contacts, contacts, compte, comptes LinkedIn, PRM) — ` +
     `utilise-les dès qu'on te pose une question sur ses données ; ne réponds jamais sur les données sans avoir appelé l'outil. ` +
