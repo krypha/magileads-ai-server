@@ -177,20 +177,23 @@ L'IA incluse refuse avant l'appel au modèle un dernier message de plus de
 4 000 caractères ou un historique de plus de 24 000 caractères (`413
 shared_prompt_too_large`). Chaque réponse est limitée à 2 048 tokens par
 tour de modèle. Une clé OpenAI personnelle n'est pas soumise à ces limites.
-Un budget par requête de **0,03 USD** (`AI_INCLUDED_MAX_REQUEST_USD`, maximum
-configurable 0,10 USD) couvre la réponse et tous les tours d’outils.
-Avant chaque appel, le serveur réserve une estimation prudente incluant le
-prompt système, les messages, les schémas des outils, leurs résultats et la
-sortie maximale. L’estimation compte un token pour 3 octets UTF-8 (ce JSON et
-ce texte en font plutôt 3,5 à 4), plus une marge de framing et 20 % de
-sécurité ; ce n’est pas un comptage exact par tokenizer. Elle comptait un token
-par octet : les schémas des outils et le prompt système réservaient à eux
-seuls 0,022 USD sur 0,03, et le premier résultat d’outil un peu long bloquait la
-demande pour un coût réel dix fois moindre. Le coût
-`usage.cost` renvoyé par OpenRouter remplace ensuite la réservation ; s’il manque,
-elle est conservée. Le tour suivant est refusé s’il dépasse le budget. Les
-actions déjà effectuées et leurs cartes restent transmises ; aucun lancement
-n’est annulé ni répété automatiquement.
+**Le coût ne coupe jamais une demande en cours.** La seule limite de coût est
+la part quotidienne du compte, vérifiée **au début** de chaque demande : une
+demande qui la dépasse en route va jusqu’au bout (le dépassement est compté),
+et la suivante part sur le modèle gratuit. Il y avait un plafond de 0,03 USD
+par demande, appliqué avant chaque appel sur une estimation : il refusait
+des demandes au coût réel dix fois moindre (« Cette demande atteint le budget
+autorisé », 15/10/2026), et il a été retiré. `AI_INCLUDED_MAX_REQUEST_USD`
+(0,03 USD par défaut) n’est plus que le montant retenu sur la part au début
+d’une demande, pour que des demandes parallèles ne passent pas toutes sur le
+même solde.
+
+Pour compter, le serveur estime chaque appel avant de l’envoyer (prompt
+système, messages, schémas des outils, leurs résultats, sortie maximale ; un
+token pour 3 octets UTF-8, plus une marge de framing et 20 %), puis remplace
+l’estimation par le `usage.cost` renvoyé par OpenRouter ; s’il manque,
+l’estimation est conservée. Les actions déjà effectuées et leurs cartes
+restent transmises ; aucun lancement n’est annulé ni répété automatiquement.
 
 OpenRouter reçoit `provider.max_price` avec, par défaut, **0,25 USD/M tokens
 d’entrée**, **1,50 USD/M tokens de sortie**, et `request: 0`. Les plafonds
@@ -199,7 +202,8 @@ s’appliquent aux providers sélectionnés et à leurs fallbacks. Réglages :
 gratuit accepte uniquement `openrouter/free` ou un slug `:free`, avec des prix
 maximums à zéro. Les règles de volume restent actives après ce repli : douze
 appels d’outils maximum, trois campagnes consultées en détail maximum, contexte
-plafonné à 120 000 octets avec le framing. Les rapports par période/jour exigent
+plafonné à 400 000 octets avec le framing (garde-fou contre un emballement,
+pas un budget). Les rapports par période/jour exigent
 une sélection de une à trois campagnes ; le résumé global reste disponible.
 
 **Sujets libres dans tous les assistants :** MagIA et les clés personnelles

@@ -41,7 +41,7 @@ test('budget includes tools, UTF-8, output and every round; only valid actual us
   assert.equal(budget.reserve([...messages, { role: 'tool', content: 'é'.repeat(20000) }], [], 2048), null);
   assert.equal(budget.reserve(messages, [{ schema: 'x'.repeat(40000) }], 2048), null);
   assert.ok(budget.reserve(messages, [], 2048, FREE_MAX_PRICE));
-  assert.equal(budget.reserve([{ role: 'tool', content: 'x'.repeat(120000) }], [], 2048, FREE_MAX_PRICE), null);
+  assert.equal(budget.reserve([{ role: 'tool', content: 'x'.repeat(400000) }], [], 2048, FREE_MAX_PRICE), null);
 });
 
 test('a real request with one sizeable tool result fits the per-request budget', async () => {

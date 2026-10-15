@@ -38,8 +38,11 @@ export class RequestBudget {
 
   reserve(messages, tools, maxTokens, price = INCLUDED_MAX_PRICE) {
     const bytes = Buffer.byteLength(JSON.stringify({ messages, tools }), 'utf8') + 1_024;
-    // Even on free fallback, stop unbounded tool-result context growth.
-    if (bytes > 120_000) return null;
+    // Even on free fallback, stop unbounded tool-result context growth. The
+    // tools and the system prompt alone are 55 kB, so 120 kB stopped requests
+    // at their third sizeable tool result; 400 kB (~130k tokens, about $0.035
+    // a call at the price ceiling) is a runaway guard, not a budget.
+    if (bytes > 400_000) return null;
     const inputTokens = Math.ceil(bytes / 3);
     const amount = 1.20 * (inputTokens * price.prompt + maxTokens * price.completion) / 1_000_000;
     if (this.spent + amount > this.limit) return null;

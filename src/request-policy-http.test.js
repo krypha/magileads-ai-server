@@ -103,8 +103,11 @@ test('all assistant surfaces allow general questions while included cost and wor
     scenario = 'cost';
     const beforeCost = modelCalls;
     const expensive = await chat();
-    assert.match(expensive, /"code":"request_budget_exceeded"/);
-    assert.equal(modelCalls, beforeCost + 1); // Growing tool results were never sent upstream.
+    // Cost never stops a request any more: the daily share is checked when a
+    // request starts. What still ends this loop is the tool-call count.
+    assert.doesNotMatch(expensive, /request_budget_exceeded/);
+    assert.match(expensive, /"code":"request_too_broad"/);
+    assert.ok(modelCalls > beforeCost + 1); // Growing tool results were sent upstream.
     assert.deepEqual(apiCalls, []);
     scenario = 'four_campaigns';
     const tooMany = await chat();

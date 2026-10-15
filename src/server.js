@@ -380,8 +380,12 @@ async function handleChat(req, res, cors) {
       ? `L’utilisateur vient de confirmer la cible dans le formulaire « Valider la cible » : c’est le clic final. Mets la cible à jour si besoin, puis lance la recherche avec l’outil ${approvedRunTool(approval) ?? 'run_* correspondant'}, sans redemander de confirmation ni renvoyer vers le formulaire.`
       : 'Cette interface utilise un formulaire de confirmation distinct après la proposition de cible. Un simple « go » écrit dans le chat ne lance rien : invite l’utilisateur à confirmer dans le formulaire « Valider la cible », à côté de la conversation. Seul le clic final autorise un outil run_*.' }] : []),
     ...clientMessages];
-  if (cappedIncluded) convo[0].content += '\nIA INCLUSE : au plus trois campagnes en audit détaillé et douze appels d’outils par demande. Pour un audit global, demande de choisir une à trois campagnes ou de connecter une clé IA personnelle. Les listes et résumés globaux restent disponibles. Si le serveur bloque le coût ou le volume, arrête les outils et invite à réduire le périmètre.';
-  const requestBudget = cappedIncluded ? new RequestBudget() : null;
+  if (cappedIncluded) convo[0].content += '\nIA INCLUSE : au plus trois campagnes en audit détaillé et douze appels d’outils par demande. Pour un audit global, demande de choisir une à trois campagnes ou de connecter une clé IA personnelle. Les listes et résumés globaux restent disponibles. Si le serveur bloque le volume, arrête les outils et invite à réduire le périmètre.';
+  // A ledger, not a gate: it adds up what this request costs (the real
+  // usage.cost, or the estimate when none comes back) for the account's daily
+  // share, and never stops a request mid-answer. The share is checked when a
+  // request starts; one that runs past it finishes, and the next one is free.
+  const requestBudget = cappedIncluded ? new RequestBudget(Infinity) : null;
   const workload = cappedIncluded ? new IncludedWorkload() : null;
 
   res.writeHead(200, {
@@ -442,14 +446,11 @@ async function handleChat(req, res, cors) {
           ? included ? 2_048 : undefined
           : provider === 'anthropic' ? anthropicMaxTokens : undefined;
         const maxPrice = cappedIncluded ? candidateTiers[modelIdx] === 'free' ? FREE_MAX_PRICE : INCLUDED_MAX_PRICE : undefined;
-        if (requestBudget?.exhausted) {
-          clearTimeout(timeout);
-          return { error: 'request_budget_exceeded' };
-        }
         const reservation = requestBudget?.reserve(messages, availableTools, maxTokens, maxPrice);
         if (requestBudget && !reservation) {
+          // Only a runaway context gets here (see RequestBudget.reserve).
           clearTimeout(timeout);
-          return { error: 'request_budget_exceeded' };
+          return { error: 'request_too_broad' };
         }
         const request = upstreamRequest(provider, candidateKeys?.[modelIdx] || providerKey, model, messages, ac.signal,
           { tools: availableTools, toolChoice, maxTokens, maxPrice });
@@ -500,7 +501,7 @@ async function handleChat(req, res, cors) {
         if (!closed) {
           failed = true;
           sendEvent('assistant.error', {
-            code: opened.error === 'request_budget_exceeded' ? opened.error : provider !== 'openrouter' && [401, 403].includes(opened.status)
+            code: opened.error === 'request_too_broad' ? opened.error : provider !== 'openrouter' && [401, 403].includes(opened.status)
               ? 'provider_key_invalid'
               : provider === 'openai' && opened.status === 400 ? 'provider_request_rejected'
               : 'provider_unavailable',
@@ -534,7 +535,6 @@ async function handleChat(req, res, cors) {
         break;
       }
       if (!calls.length) break; // the model produced its final answer
-      if (requestBudget?.exhausted) { fail('request_budget_exceeded'); break; }
       produced = true;
 
       convo.push({
