@@ -496,7 +496,39 @@ async function handleChat(req, res, cors) {
         'Termine maintenant par le résultat demandé à partir des données réellement obtenues. Aucun nouvel outil n’est autorisé. ' +
         'Si l’analyse est incomplète, présente ce qui est établi et explique seulement la limite qui change réellement la conclusion, en langage métier. ' +
         'N’énumère pas les mesures absentes, les outils utilisés ou les étapes internes ; ne prétends pas avoir terminé les croisements non calculés et n’annonce pas de nouvelle recherche.' });
-      const opened = await openUpstream(round, finalAnswer);
+      let opened;
+      let answer;
+      for (;;) {
+        opened = await openUpstream(round, finalAnswer);
+        if (opened.error) break;
+
+        // On annonce le modèle réellement utilisé (utile pour les paliers "free"
+        // — où l'on peut avoir basculé — et "custom").
+        if (announcedModel !== opened.model) {
+          announcedModel = opened.model;
+          sendEvent("model.info", { provider, tier: candidateTiers?.[modelIdx] || tier, model: opened.model,
+            fallback: budgetFallback || modelIdx > 0,
+            ...(budgetFallback || modelIdx > 0 ? { fallback_reason: fallbackReason ?? 'model_unavailable' } : {}) });
+        }
+
+        let wrote = false;
+        try {
+          answer = await readOpened(opened, (delta) => {
+            wrote = true;
+            produced = true;
+            sendText(delta);
+          });
+          break;
+        } catch (error) {
+          // OpenRouter answers 200 and then streams the provider's failure —
+          // the free Nemotron's "Service temporarily overloaded" (503) is the
+          // usual one. Before a word was written that is a refused call like
+          // any other, so the next candidate gets it; after, it is not.
+          if (wrote || error?.message !== 'upstream_stream_error' || modelIdx + 1 >= candidates.length) throw error;
+          console.error(`[ai] upstream ${provider} failed before any output (${opened.model}), trying the next model`);
+          modelIdx++;
+        }
+      }
       if (opened.error) {
         if (!closed) {
           failed = true;
@@ -509,21 +541,8 @@ async function handleChat(req, res, cors) {
         }
         break;
       }
-      const { model } = opened;
 
-      // On annonce le modèle réellement utilisé (utile pour les paliers "free"
-      // — où l'on peut avoir basculé — et "custom").
-      if (announcedModel !== model) {
-        announcedModel = model;
-        sendEvent("model.info", { provider, tier: candidateTiers?.[modelIdx] || tier, model,
-          fallback: budgetFallback || modelIdx > 0,
-          ...(budgetFallback || modelIdx > 0 ? { fallback_reason: fallbackReason ?? 'model_unavailable' } : {}) });
-      }
-
-      const { assistantContent, reasoningContent, calls } = await readOpened(opened, (delta) => {
-        produced = true;
-        sendText(delta);
-      });
+      const { assistantContent, reasoningContent, calls } = answer;
       // Enforce tool_choice=none ourselves if a provider ignores it.
       if (finalAnswer && (calls.length || !assistantContent.trim())) {
         fail('stream_failed');

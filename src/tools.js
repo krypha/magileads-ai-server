@@ -41,6 +41,7 @@ import {
   getContactListProfile,
   listContactListContacts,
   searchContactListContacts,
+  searchAllContacts,
   listProgrammationsStats,
   getProgrammationStats,
   getWorkflow,
@@ -304,11 +305,11 @@ export const AI_TOOLS = [
     function: {
       name: "preview_contact_selection",
       description:
-        "Compte les contacts d'une liste correspondant à un filtre, pour dimensionner un segment. Lecture seule : ne modifie rien.",
+        "Compte les contacts correspondant à un filtre, pour dimensionner un segment. Avec list_id : dans cette liste. SANS list_id : sur TOUS les contacts du compte, toutes listes confondues, en un seul appel — à utiliser pour toute question « en tout » ou « sur tout le compte », au lieu de compter liste par liste. Un contact présent dans plusieurs listes y compte une fois par liste. Lecture seule : ne modifie rien.",
       parameters: {
         type: "object",
         properties: {
-          list_id: { type: "number", description: "Id de la liste." },
+          list_id: { type: "number", description: "Id de la liste. À omettre pour compter sur tout le compte." },
           filter: {
             type: "object",
             description:
@@ -328,7 +329,7 @@ export const AI_TOOLS = [
             required: ['mode', 'values'],
           },
         },
-        required: ["list_id", "filter"],
+        required: ["filter"],
       },
     },
   },
@@ -814,20 +815,24 @@ export async function executeTool(name, argsRaw, auth, context = {}) {
       }
 
       case "preview_contact_selection": {
+        // No list: the whole account, in one call (see searchAllContacts).
+        const accountWide = args.list_id == null;
         const id = Number(args.list_id);
-        if (!Number.isFinite(id)) return cap({ error: "list_id manquant" });
+        if (!accountWide && !Number.isFinite(id)) return cap({ error: "list_id invalide" });
         if (!nonEmptyFilter(args.filter)) {
           return cap({ error: "filtre vide interdit (empêche une suppression totale accidentelle)" });
         }
         if (!numericContactFields(args.filter)) {
           return cap({ error: 'field_name doit être l’ID numérique du champ en texte (ex. "7") renvoyé par list_contact_fields, jamais son nom ni son identifier. Corrige le filtre avant de recompter.' });
         }
-        const r = await listContactListContacts(auth, id, { per_page: 1, filter: args.filter });
+        const r = accountWide
+          ? await searchAllContacts(auth, { per_page: 1, filter: args.filter })
+          : await listContactListContacts(auth, id, { per_page: 1, filter: args.filter });
         if (!r.ok || !r.data) return cap({ error: "aperçu indisponible" });
         const env = r.data;
         const count = Number(env.number_of_results ?? env.number_of_contacts ?? 0) || 0;
         return cap({
-          list_id: id,
+          ...(accountWide ? { scope: "tous les contacts du compte" } : { list_id: id }),
           count,
           note: "Lecture seule : aucune modification. Ce comptage peut servir à une copie filtrée ou à une proposition de suppression. La suppression est réalisée par le front seulement après aperçu et confirmation humaine.",
         });

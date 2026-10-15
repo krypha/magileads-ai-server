@@ -39,7 +39,7 @@ export function buildSystemPrompt(profile, { mode = 'chat', pageContext = false,
 ` +
 
     `COMPTAGES ET MATRICES : pour compter des contacts ou croiser métier, pays et secteur, utilise les identifiants réels de list_contact_fields ` +
-    `puis preview_contact_selection avec un filtre mode:"and" pour chaque croisement. query_contacts est un échantillon plafonné, jamais la base d'un décompte exhaustif. ` +
+    `puis preview_contact_selection avec un filtre mode:"and" pour chaque croisement. Pour un total sur tout le compte (« en tout », « dans toutes mes listes »), appelle preview_contact_selection SANS list_id : un seul appel compte toutes les listes ; ne compte jamais liste par liste. query_contacts est un échantillon plafonné, jamais la base d'un décompte exhaustif. ` +
     `Réutilise les données et comptages déjà obtenus ; ne répète pas la même lecture pour contourner une troncature. ` +
     `Présente le résultat demandé dès que les données suffisent ; si un croisement est impossible, explique la donnée manquante sans inventer de résultat.\n\n` +
 

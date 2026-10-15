@@ -153,6 +153,20 @@ export const getContactListProfile = (auth, id) => request(`/contact-lists/${id}
 export const listContactListContacts = (auth, id, options) =>
   request(`/contact-lists/${id}/contacts${optionsQuery(options)}`, { auth });
 
+/**
+ * Contacts across every list of the account ("Tous mes contacts"), filtered.
+ * `options` travels in the BODY here, and the endpoint wants `filter` even
+ * empty. `number_of_results` is the account-wide total — one call where a
+ * count list by list took one per list (measured: 135,759 "Monsieur" of
+ * 253,694 contacts on the test account).
+ */
+export const searchAllContacts = (auth, { page = 1, per_page = 1, filter } = {}) =>
+  request("/contact-lists/contacts/search", {
+    auth,
+    method: "POST",
+    body: { options: { page, per_page, filter: filter ?? { mode: "and", values: [] } } },
+  });
+
 export const searchContactListContacts = (auth, id, query, options) =>
   request(`/contact-lists/${id}/contacts/search${optionsQuery(options)}`, {
     auth,
