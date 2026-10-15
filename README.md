@@ -68,7 +68,7 @@ npm run start:node       # node --env-file=.env src/server.js
 | `AI_INCLUDED_API_KEY` | Clé OpenRouter dédiée aux comptes `level=user`, plafonnée à 3 USD avec `limit_reset=daily`. Sans plafond vérifiable, le serveur utilise le modèle gratuit. |
 | `AI_API_KEY_FREE`   | Clé distincte recommandée pour le repli gratuit après épuisement du budget (à défaut : `AI_API_KEY`). |
 | `AI_MODEL_INCLUDED` | Modèle Simple des comptes `level=user`. Si vide, reprend `AI_MODEL` ; si les deux sont vides, `deepseek/deepseek-v4-flash`. |
-| `AI_MODEL_FREE`      | Palier « Gratuit » et repli de l'IA incluse — défaut `nvidia/nemotron-3-ultra-550b-a55b:free,openrouter/free` (Nemotron 3 Ultra, puis le routeur gratuit d'OpenRouter). Liste séparée par des virgules, essayée dans l'ordre |
+| `AI_MODEL_FREE`      | Palier « Gratuit » et repli de l'IA incluse — défaut `nvidia/nemotron-3-ultra-550b-a55b:free,nvidia/nemotron-3-super-120b-a12b:free` (Nemotron 3 Ultra, puis Nemotron 3 Super). Liste séparée par des virgules, essayée dans l'ordre ; un modèle qui échoue avant d’écrire passe la main au suivant. Éviter `openrouter/free` : ce routeur choisit le modèle et tombe parfois sur un modèle qui ne sait pas appeler les outils. Mettre au moins deux modèles, sinon une surcharge chez le fournisseur coupe la réponse. |
 | `AI_INCLUDED_USER_DAILY_USD` | Part quotidienne de chaque compte sur la clé incluse, en USD (défaut `0.15`, maximum `3`). Au-delà, ce compte passe sur `AI_MODEL_FREE` jusqu'à minuit UTC. |
 | `AI_INCLUDED_ORIGINS` | Fronts Magileads autorisés à utiliser la clé incluse payante, séparés par des virgules, avec ou sans `https://` (`beta.magileads.io` comme `https://beta.magileads.io/`) — défaut `https://beta.magileads.io,https://application.magileads.io` ; `localhost` toujours accepté. Une autre origine — une marque blanche — répond sur `AI_MODEL_FREE`. |
 | `REDIS_URL`          | Compteurs partagés de la part quotidienne : `redis://…`, ou `rediss://…` en TLS (client minimal `src/redis-client.js`, qui envoie le SNI — celui de Bun ne l’envoie pas, et un Redis derrière Traefik est routé par ce nom). Vide : compteurs en mémoire du processus. |
@@ -326,7 +326,7 @@ l'application. Le composant Mantine gère ce cas via `getAuthHeaders`.
 
 | Palier | Modèle utilisé | Particularité |
 | ------ | -------------- | ------------- |
-| `free` | `AI_MODEL_FREE` (défaut Nemotron 3 Ultra `:free`, puis `openrouter/free`) | Modèles gratuits essayés dans l’ordre. Si une liste est épinglée, **bascule automatique** sur le suivant en cas de 429/404/402 |
+| `free` | `AI_MODEL_FREE` (défaut Nemotron 3 Ultra `:free`, puis Nemotron 3 Super `:free`) | Modèles gratuits essayés dans l’ordre. **Bascule automatique** sur le suivant en cas de 429/404/402, ou d’erreur dans le flux avant toute réponse (surcharge du fournisseur) |
 | `simple` | `AI_MODEL` pour les admins ; `AI_MODEL_INCLUDED` puis `AI_MODEL` puis Flash pour `level=user` | palier par défaut |
 | `complex` | `AI_MODEL_COMPLEX` | retombe sur `AI_MODEL` si non défini |
 | `custom` | fourni par le client | permet de tester un modèle précis |

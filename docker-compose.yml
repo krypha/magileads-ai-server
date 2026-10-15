@@ -32,7 +32,7 @@ services:
       AI_MODEL_COMPLEX: ${AI_MODEL_COMPLEX:-}
       # Empty = inherit AI_MODEL, including for regular users during tests.
       AI_MODEL_INCLUDED: ${AI_MODEL_INCLUDED:-}
-      AI_MODEL_FREE: ${AI_MODEL_FREE:-nvidia/nemotron-3-ultra-550b-a55b:free,openrouter/free}
+      AI_MODEL_FREE: ${AI_MODEL_FREE:-nvidia/nemotron-3-ultra-550b-a55b:free,nvidia/nemotron-3-super-120b-a12b:free}
       # Each account's daily share of the included key, and where it is counted.
       AI_INCLUDED_USER_DAILY_USD: ${AI_INCLUDED_USER_DAILY_USD:-0.15}
       AI_INCLUDED_ORIGINS: ${AI_INCLUDED_ORIGINS:-https://beta.magileads.io,https://application.magileads.io}

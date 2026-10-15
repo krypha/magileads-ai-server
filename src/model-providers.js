@@ -88,9 +88,13 @@ export function resolveModels(provider, tier, customModel) {
     return model ? [model] : [];
   }
   if (provider === 'openrouter') {
-    // Nemotron 3 Ultra first: free, and it calls tools; OpenRouter's own free
-    // router behind it when that model is saturated.
-    if (tier === 'free') return (process.env.AI_MODEL_FREE || 'nvidia/nemotron-3-ultra-550b-a55b:free,openrouter/free').split(',').map(s => s.trim()).filter(Boolean);
+    const DEFAULT_FREE_MODELS = 'nvidia/nemotron-3-ultra-550b-a55b:free,nvidia/nemotron-3-super-120b-a12b:free';
+    // Named free models that call tools, not `openrouter/free`: that router
+    // picks the model and sometimes lands on one that cannot call a tool.
+    // Measured 2026-10-15 on the contacts count: Nemotron 3 Ultra and 3 Super
+    // answer it; Super answered while Ultra was overloaded (Nvidia 503).
+    // Gemma 4 and Laguna were 429, Dots called the tools and wrote nothing.
+    if (tier === 'free') return (process.env.AI_MODEL_FREE || DEFAULT_FREE_MODELS).split(',').map(s => s.trim()).filter(Boolean);
     return [tier === 'complex' ? process.env.AI_MODEL_COMPLEX || process.env.AI_MODEL : process.env.AI_MODEL].filter(Boolean);
   }
   // A user's direct API key is billed by the provider: never call it on a
