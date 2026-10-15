@@ -9,10 +9,12 @@
 // midnight UTC — when OpenRouter resets the key — while the others keep the
 // paid one.
 //
-// The counters live in Redis when REDIS_URL is set (Bun's built-in client, no
+// The counters live in Redis when REDIS_URL is set (redis-client.js, no
 // dependency), so every instance and every restart sees the same balance.
 // Without it they live in this process: correct for one instance, reset by a
 // restart, and the $3 cap on the key still bounds the total either way.
+
+import { RedisClient } from './redis-client.js';
 
 const DEFAULT_USER_DAILY_USD = 0.15;
 const DAY_SECONDS = 86_400;
@@ -62,9 +64,8 @@ export class RedisQuotaStore {
   }
 }
 
-export async function createQuotaStore(url = process.env.REDIS_URL) {
+export async function createQuotaStore(url = process.env.REDIS_URL?.trim()) {
   if (!url) return { store: new MemoryQuotaStore(), shared: false };
-  const { RedisClient } = await import('bun');
   return { store: new RedisQuotaStore(new RedisClient(url)), shared: true };
 }
 

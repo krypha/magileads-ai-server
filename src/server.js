@@ -185,7 +185,7 @@ let quotaStore;
 try {
   quotaStore = await createQuotaStore();
 } catch {
-  // REDIS_URL under Node, or a malformed URL: count here rather than not at all.
+  // A malformed REDIS_URL: count here rather than not at all.
   console.error('[ai] REDIS_URL unusable, counting the included AI per process');
   quotaStore = { store: new MemoryQuotaStore(), shared: false };
 }

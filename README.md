@@ -71,7 +71,7 @@ npm run start:node       # node --env-file=.env src/server.js
 | `AI_MODEL_FREE`      | Palier « Gratuit » et repli de l'IA incluse — défaut `nvidia/nemotron-3-ultra-550b-a55b:free,openrouter/free` (Nemotron 3 Ultra, puis le routeur gratuit d'OpenRouter). Liste séparée par des virgules, essayée dans l'ordre |
 | `AI_INCLUDED_USER_DAILY_USD` | Part quotidienne de chaque compte sur la clé incluse, en USD (défaut `0.15`, maximum `3`). Au-delà, ce compte passe sur `AI_MODEL_FREE` jusqu'à minuit UTC. |
 | `AI_INCLUDED_ORIGINS` | Fronts Magileads autorisés à utiliser la clé incluse payante (défaut `https://beta.magileads.io,https://application.magileads.io` ; `localhost` toujours accepté). Une autre origine — une marque blanche — répond sur `AI_MODEL_FREE`. |
-| `REDIS_URL`          | Compteurs partagés de la part quotidienne (`redis://…`, client intégré à Bun). Vide : compteurs en mémoire du processus. |
+| `REDIS_URL`          | Compteurs partagés de la part quotidienne : `redis://…`, ou `rediss://…` en TLS (client minimal `src/redis-client.js`, qui envoie le SNI — celui de Bun ne l’envoie pas, et un Redis derrière Traefik est routé par ce nom). Vide : compteurs en mémoire du processus. |
 | `AI_MODEL`           | Modèle du palier « Simple » (palier par défaut)                     |
 | `AI_MODEL_COMPLEX`   | Modèle du palier « Complexe » (si vide → identique à Simple)        |
 | `ALLOW_CUSTOM_MODEL` | `false` pour désactiver le palier « Perso. »                         |
