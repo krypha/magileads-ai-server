@@ -488,12 +488,22 @@ async function handleChat(req, res, cors) {
     if (!closed) sendEvent('assistant.error', { code });
   }
 
+  // The included AI's volume limit (twelve tool calls, three campaigns) ends
+  // the TOOLS, not the answer: the round after it is a final answer from what
+  // was found. It used to end on request_too_broad with nothing written —
+  // "combien d'emails puis-je encore envoyer" spent its twelve calls and the
+  // user got an error after twenty seconds.
+  let volumeReached = false;
+  // What has been written so far, to keep the text of two rounds apart.
+  let written = '';
+
   try {
     // All assistant surfaces answer without a preliminary topic classifier.
     chatRounds: for (let round = 0; !closed && !failed; round++) {
-      const finalAnswer = round >= maxRounds;
+      const finalAnswer = round >= maxRounds || volumeReached;
       if (finalAnswer) convo.push({ role: 'system', content:
         'Termine maintenant par le résultat demandé à partir des données réellement obtenues. Aucun nouvel outil n’est autorisé. ' +
+        (volumeReached ? 'La limite de volume de l’IA incluse est atteinte pour cette demande : si la réponse est partielle, dis-le en une phrase et propose de réduire le périmètre ou de connecter une clé IA personnelle. ' : '') +
         'Si l’analyse est incomplète, présente ce qui est établi et explique seulement la limite qui change réellement la conclusion, en langage métier. ' +
         'N’énumère pas les mesures absentes, les outils utilisés ou les étapes internes ; ne prétends pas avoir terminé les croisements non calculés et n’annonce pas de nouvelle recherche.' });
       let opened;
@@ -514,8 +524,16 @@ async function handleChat(req, res, cors) {
         let wrote = false;
         try {
           answer = await readOpened(opened, (delta) => {
+            // A round's first words after an earlier round's ("Je vérifie vos
+            // expéditeurs." then "Oui — …") start a new paragraph instead of
+            // running on: "expéditeurs.Oui".
+            if (!wrote && written.trim() && !written.endsWith('\n')) {
+              sendText('\n\n');
+              written += '\n\n';
+            }
             wrote = true;
             produced = true;
+            written += delta;
             sendText(delta);
           });
           break;
@@ -569,8 +587,15 @@ async function handleChat(req, res, cors) {
 
       for (const c of calls) {
         if (closed) break;
-        const limitError = workload?.check(c.name, c.args);
-        if (limitError) { fail(limitError); break chatRounds; }
+        // Past the volume limit every remaining call is answered, unrun: each
+        // tool call needs its tool message, and the next round writes.
+        const limitError = volumeReached ? 'request_too_broad' : workload?.check(c.name, c.args);
+        if (limitError) {
+          volumeReached = true;
+          convo.push({ role: 'tool', tool_call_id: c.id, content: JSON.stringify({ error: 'limite_de_volume_atteinte',
+            note: 'Outil non exécuté : la limite de volume de l’IA incluse est atteinte. Réponds avec les données déjà obtenues.' }) });
+          continue;
+        }
         const createsList = createsListForTool(c.name, c.args);
         let result;
         const permitted = !importMode ? !IMPORT_ONLY_TOOLS.has(c.name)

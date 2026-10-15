@@ -19,8 +19,15 @@ test('included tools cannot audit a fourth campaign, including scenarios and rep
     assert.equal(policy.check('get_campaign', JSON.stringify({ workflow_id: id + 10 })), null);
   }
   assert.equal(policy.check('get_campaign', '{"workflow_id":14}'), 'request_too_broad');
-  assert.equal(policy.check('run_operation', JSON.stringify({ operation: 'get_daily_reporting', body: {} })), 'request_too_broad');
   assert.equal(policy.check('run_operation', JSON.stringify({ operation: 'get_period_reporting', body: { limit_to_programmation_ids: [1, 2, 3, 4] } })), 'request_too_broad');
+});
+
+test('a report on the whole account is one call, not a campaign audit', () => {
+  const policy = new IncludedWorkload();
+  // No selection means every campaign, in a single request to the API.
+  assert.equal(policy.check('run_operation', JSON.stringify({ operation: 'get_period_reporting', body: {} })), null);
+  assert.equal(policy.check('run_operation', JSON.stringify({ operation: 'get_daily_reporting', body: { limit_to_programmation_ids: [] } })), null);
+  assert.equal(policy.campaigns.size, 0);
 });
 
 test('included tool count is bounded across rounds even on the free model', () => {

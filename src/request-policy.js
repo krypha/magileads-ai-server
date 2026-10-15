@@ -16,9 +16,13 @@ export class IncludedWorkload {
     if (name === 'get_campaign') ids.push(this.workflowCampaigns.get(String(args.workflow_id)) ?? `workflow:${args.workflow_id}`);
     if (name === 'run_operation') {
       if (['get_period_reporting', 'get_daily_reporting'].includes(args.operation)) {
+        // No selection is the whole account in ONE call (an empty
+        // limit_to_programmation_ids means all), which is the cheap way to
+        // answer "mes statistiques des 7 derniers jours". It used to be
+        // refused, and the request ended on request_too_broad.
         const selected = args.body?.limit_to_programmation_ids;
-        if (!Array.isArray(selected) || !selected.length || selected.length > 3) return 'request_too_broad';
-        ids.push(...selected.map(id => `campaign:${id}`));
+        if (Array.isArray(selected) && selected.length > 3) return 'request_too_broad';
+        if (Array.isArray(selected)) ids.push(...selected.map(id => `campaign:${id}`));
       }
       if (args.operation === 'get_campaign_schedule') ids.push(`campaign:${args.params?.id}`);
     }

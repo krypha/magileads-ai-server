@@ -48,6 +48,8 @@ test('all assistant surfaces allow general questions while included cost and wor
       if (scenario === 'four_campaigns') delta = { tool_calls: Array.from({ length: 4 }, (_, index) => ({
         index, id: `audit-${index}`, function: { name: 'get_campaign_statistics', arguments: JSON.stringify({ id: index + 1 }) },
       })) };
+      // The round after the volume limit forbids tools: the model writes.
+      if (body.tool_choice === 'none') delta = { content: 'Réponse partielle.' };
       res.writeHead(200, { 'Content-Type': 'text/event-stream' });
       return res.end(`data: ${JSON.stringify({ choices: [{ delta }], usage: { cost: 0.0002 } })}\n\ndata: [DONE]\n\n`);
     }
@@ -106,13 +108,18 @@ test('all assistant surfaces allow general questions while included cost and wor
     // Cost never stops a request any more: the daily share is checked when a
     // request starts. What still ends this loop is the tool-call count.
     assert.doesNotMatch(expensive, /request_budget_exceeded/);
-    assert.match(expensive, /"code":"request_too_broad"/);
+    // The volume limit ends the tools, not the answer.
+    assert.doesNotMatch(expensive, /event: assistant\.error/);
+    assert.match(expensive, /Réponse partielle/);
     assert.ok(modelCalls > beforeCost + 1); // Growing tool results were sent upstream.
     assert.deepEqual(apiCalls, []);
     scenario = 'four_campaigns';
     const tooMany = await chat();
-    assert.match(tooMany, /"code":"request_too_broad"/);
+    assert.doesNotMatch(tooMany, /event: assistant\.error/);
+    assert.match(tooMany, /Réponse partielle/);
+    // The fourth campaign was never read.
     assert.deepEqual(apiCalls, ['/statistics/programmations/1', '/statistics/programmations/2', '/statistics/programmations/3']);
+    assert.match(modelRequests.at(-1).messages.at(-1).content, /limite de volume/);
     scenario = 'allow';
     const followup = await chat({ messages: [{ role: 'user', content: 'Audite ma campagne #1' },
       { role: 'assistant', content: 'Afficher le scénario ?' }, { role: 'user', content: 'oui' }] });

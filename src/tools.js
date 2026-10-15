@@ -422,6 +422,24 @@ export const AI_TOOLS = [
   },
 ];
 
+/** The quotas users ask about, in their words (get_account_overview). */
+const QUOTA_LABELS = {
+  maxEmailsSentPerDay: "Emails envoyés par jour",
+  maxEmailsGeneratedPerMonth: "Emails trouvés (enrichissement) par mois",
+  maxMobilePhonesGeneratedPerMonth: "Numéros de mobile trouvés par mois",
+  maxIceBreakerPerMonth: "Ice breakers générés par mois",
+  maxDatafieldAiPerMonth: "Colonnes IA générées par mois",
+  maxIntegrationsEmailSMTP: "Comptes email SMTP connectés",
+  maxIntegrationsEmailMassMailing: "Comptes d’envoi en masse connectés",
+  maxIntegrationsLinkedin: "Comptes LinkedIn connectés",
+  maxLinkedinInteractionsPerDay: "Actions LinkedIn par jour",
+  maxLinkedinInteractionsPerMonth: "Actions LinkedIn par mois",
+  maxSmsSentPerDay: "SMS envoyés par jour",
+  maxSmsSentPerMonth: "SMS envoyés par mois",
+  maxSmvSentPerDay: "Messages vocaux envoyés par jour",
+  maxTestEmailSentPerDay: "Emails de test par jour",
+};
+
 /** French label for the streaming tool indicator (the front can reuse this map). */
 export const TOOL_LABELS = {
   create_document: "Préparation du document",
@@ -578,6 +596,18 @@ export async function executeTool(name, argsRaw, auth, context = {}) {
         const r = await getMe(auth);
         if (!r.ok || !r.data) return cap({ error: "profil indisponible" });
         const p = r.data.user_profile ?? r.data;
+        // The account's quotas are its counted permissions: `default_value` is
+        // the cap, `used` what was consumed and `remaining` what is left
+        // (measured on the profile). A cap with no counter is listed without
+        // usage rather than read as unlimited.
+        const quotas = (Array.isArray(p.permissions) ? p.permissions : [])
+          .filter((perm) => perm?.value_type === "integer" && perm.name)
+          .map((perm) => ({
+            name: perm.name,
+            ...(QUOTA_LABELS[perm.name] ? { label: QUOTA_LABELS[perm.name] } : {}),
+            cap: perm.default_value ?? null,
+            ...(perm.used != null ? { used: perm.used, remaining: perm.remaining } : { usage: "non suivi" }),
+          }));
         return cap({
           first_name: p.first_name,
           last_name: p.last_name,
@@ -585,7 +615,8 @@ export async function executeTool(name, argsRaw, auth, context = {}) {
           id: p.id,
           subscriptions: p.subscriptions ?? null,
           level: p.level ?? null,
-          _note: "L'API n'expose pas de solde de crédits numérique.",
+          quotas,
+          _note: "quotas : plafonds du compte, avec la consommation et le restant quand l'API les suit (par jour ou par mois selon le nom). Pas de solde de crédits en euros.",
         });
       }
 
