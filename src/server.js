@@ -24,6 +24,7 @@ import http from "node:http";
 import { getMe, listAiIntegrations } from "./magileads.js";
 import { AI_TOOLS, TOOL_LABELS, CREATES_LIST, createsListForTool, executeTool } from "./tools.js";
 import { buildSystemPrompt } from "./prompt.js";
+import { assistantBrandName, brandIdentityInstruction, DEFAULT_BRAND } from "./branding.js";
 import { KEY_TYPE_FOR_PROVIDER, MODEL_PROVIDERS, listProviderModels, readModelStream, resolveIncludedModel, resolveModels, selectedModel, upstreamRequest } from './model-providers.js';
 import { approvedRunTool, approvedToolArgs, parseImportApproval } from './import-approval.js';
 import { checkIncludedBudget, sharedPromptTooLarge, RequestBudget, INCLUDED_MAX_PRICE, FREE_MAX_PRICE, INCLUDED_REQUEST_USD } from './included-budget.js';
@@ -368,9 +369,12 @@ async function handleChat(req, res, cors) {
     }
   }
 
+  // The site’s resolved brand is presentation metadata only. Account identity
+  // and every API permission still come exclusively from the authenticated caller.
+  const brandName = assistantBrandName(body.brand_name);
   const pageContext = /^\[(?:Screen context, not written by the user and not to be quoted|Screen context from the app, not written by the user)\]/.test(clientMessages.at(-1).content);
   const convo = [{ role: "system", content: buildSystemPrompt(profile, {
-    mode: importMode ? 'import' : 'chat', pageContext, personalKey, formBasedImport: body.mode === 'import',
+    mode: importMode ? 'import' : 'chat', pageContext, personalKey, formBasedImport: body.mode === 'import', brandName,
   }) },
     // The import UI's own confirmation. Without it, a typed "go" launches
     // nothing and the model points at the form; with it — the form's final
@@ -383,6 +387,11 @@ async function handleChat(req, res, cors) {
     ...clientMessages];
   // Next to the question, where a model reads it (see language.js) — before
   // it, so the conversation still ends on the user's message.
+  // Reassert the current tenant next to the question in long conversations.
+  // Do not rewrite history, tool data, documents or streamed output.
+  if (brandName.toLowerCase() !== DEFAULT_BRAND.toLowerCase()) {
+    convo.splice(convo.length - 1, 0, { role: 'system', content: brandIdentityInstruction(brandName) });
+  }
   const language = languageInstruction(clientMessages.at(-1).content);
   if (language) convo.splice(convo.length - 1, 0, { role: 'system', content: language });
   if (cappedIncluded) convo[0].content += '\nIA INCLUSE : au plus trois campagnes en audit détaillé et douze appels d’outils par demande. Pour un audit global, demande de choisir une à trois campagnes ou de connecter une clé IA personnelle. Les listes et résumés globaux restent disponibles. Si le serveur bloque le volume, arrête les outils et invite à réduire le périmètre.';

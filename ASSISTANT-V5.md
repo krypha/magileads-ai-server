@@ -8,6 +8,28 @@ Le serveur conserve les outils de lecture/ciblage existants et ajoute un catalog
 
 ## Comportement
 
+### Marque de la plateforme
+
+Le corps de `POST /ai/chat` accepte `brand_name?: string`, le nom commercial
+de la marque résolue par le front. Exemple : `{ "brand_name": "Biolex",
+"messages": [{ "role": "user", "content": "Présente-toi" }] }` (les autres
+paramètres restent identiques). Tous les assistants v5 transmettent ce champ
+via leur client SSE commun, y compris avec une clé personnelle et pendant un
+switch de compte. Il est relu à chaque requête ; le nom d’une marque non encore
+validée par le bootstrap du front n’est pas envoyé.
+
+Le serveur normalise ce texte en une ligne de 120 caractères Unicode au maximum
+et utilise Magileads par défaut pour les anciens clients qui l’omettent. Le nom
+est traité comme une donnée d’affichage, jamais comme une instruction, un droit
+d’accès, un identifiant de compte ou une URL d’API. L’authentification reste celle
+de l’appelant. Le prompt utilise le nom actuel pour la plateforme et sa base de
+contacts. Sur une marque blanche, un rappel près de la dernière question prime
+sur une ancienne présentation Magileads/MagIA dans l’historique. Les noms des
+services tiers, les vraies listes et campagnes, les URL et les identifiants ne
+sont pas remplacés. Aucun changement du contrat SSE et aucun remplacement de
+texte dans le flux ou dans les conversations enregistrées.
+
+
 ### PRM : colonnes et comptages exacts
 
 La bulle PRM transmet uniquement sur le dernier message le propriétaire du
