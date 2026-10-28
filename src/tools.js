@@ -1,3 +1,5 @@
+import { linkedinValues, linkedinBooleanOr } from './linkedin-criteria.js';
+import { SALES_CRITERIA_SCHEMA, SALES_RUN_SCHEMA } from './sales-navigator-criteria.js';
 import { sanitize, forbiddenOperation } from './assistant-policy.js';
 import { applyConnectionDegrees, CONNECTION_DEGREES_SCHEMA, validConnectionDegrees, normalizeConnectionDegrees } from './linkedin-connections.js';
 import { usageLimitsEnabled } from './usage-policy.js';
@@ -112,10 +114,11 @@ export const AI_TOOLS = [
     type: 'function',
     function: {
       name: 'update_targeting',
-      description: 'Mode import : publie les critères structurés dès que la cible évolue. Aucun appel Magileads, aucune création. À appeler au début de chaque tour import.',
+      description: 'Mode import : publie TOUS les critères de la demande, pas seulement les postes et zones. Sales Navigator : inclure company_head_counts, company_headquarters, chaque *_exclude concerné et les signaux recently_changed_job/posted_on_linkedin/in_the_news dès qu’ils sont demandés. Un champ omis CONSERVE son ancienne valeur. Renseigne tous les champs Sales Navigator, même vides. Pour retirer les exclusions de secteur et d’entreprise, envoie sectors_exclude:[] ET companies_exclude:[] ; pour les signaux, false/null. Hors Sales Navigator, conserve ces valeurs de référence sans les appliquer à la nouvelle source. Les exclusions ne doivent pas rester seulement dans exclusions. Aucun appel API ni création. À appeler au début de chaque tour import.',
       parameters: {
         type: 'object',
         properties: {
+          ...SALES_CRITERIA_SCHEMA,
           source: { type: ['string', 'null'], enum: ['linkedin', 'sales_navigator', 'database', 'google_maps', null] },
           job_titles: { type: 'array', items: { type: 'string' } },
           seniority: { type: 'array', items: { type: 'string' } },
@@ -130,7 +133,7 @@ export const AI_TOOLS = [
           exclusions: { type: 'array', items: { type: 'string' } },
           max_results: { type: ['number', 'null'] },
         },
-        required: ['source'],
+        required: ['source', ...Object.keys(SALES_CRITERIA_SCHEMA)],
         additionalProperties: false,
       },
     },
@@ -164,6 +167,7 @@ export const AI_TOOLS = [
       name: 'run_sales_navigator_targeting',
       description: 'Lance une extraction Sales Navigator après validation. Secteurs, tranches et niveaux sont vérifiés dans l’URL générée. Nécessite un compte Sales Navigator valide et list_name OU contact_list_id.',
       parameters: { type: 'object', properties: {
+        ...SALES_RUN_SCHEMA,
         titles: { type: 'array', items: { type: 'string' } },
         locations: { type: 'array', items: { type: 'string' }, description: 'Noms de zones en français ; résolus en ID par Magileads.' },
         industries: { type: 'array', items: { type: 'string' }, description: 'Noms exacts de secteurs ou IDs du catalogue Magileads.' },
@@ -404,6 +408,9 @@ export const AI_TOOLS = [
           },
           list_name: { type: "string", description: "Nom de la liste à créer ; exclusif avec contact_list_id." },
           contact_list_id: { type: 'number', description: 'ID d’une liste existante à alimenter, à la place de list_name.' },
+          titles: { type: 'array', maxItems: 6, items: { type: 'string' }, description: 'TOUS les postes demandés, ex. ["CEO", "DG"]. Recherche OU entre ces postes. Prioritaire sur title, même vide.' },
+          companies: { type: 'array', maxItems: 6, items: { type: 'string' }, description: 'TOUTES les entreprises demandées, ex. ["Magileads", "Darty"]. Recherche OU entre ces entreprises. Prioritaire sur company, même vide.' },
+          locations: { type: 'array', maxItems: 6, items: { type: 'string' }, description: 'Toutes les zones demandées, résolues en IDs. Prioritaire sur location, même vide.' },
           title: {
             type: "string",
             description: "Intitulé de poste ciblé, ex. « DAF », « Head of Growth » (optionnel).",
@@ -952,13 +959,16 @@ export async function executeTool(name, argsRaw, auth, context = {}) {
         if (account.error) return cap(account);
         const target = await resolveListTarget(args, auth);
         if (target.error) return cap(target);
-        const text = (value) => typeof value === "string" && value.trim() ? value.trim() : "";
+        const titles = linkedinValues(args.titles, args.title);
+        const companies = linkedinValues(args.companies, args.company);
+        const requestedLocations = linkedinValues(args.locations, args.location);
+        if (!titles || !companies || !requestedLocations) return cap({ error: 'Postes, entreprises et zones : six valeurs de 120 caractères maximum par critère.' });
 
         // "My connections": the first degree with nothing narrowing it is the
         // account's whole network, extracted by its own route rather than by a
         // people search with no keyword (which the URL generator refuses).
         if (firstDegreeOnly(normalizeConnectionDegrees(args.connection_degrees)) &&
-          !text(args.title) && !text(args.location) && !text(args.company)) {
+          !titles.length && !requestedLocations.length && !companies.length) {
           const max = Math.min(Math.max(Math.trunc(Number(args.max_results)) || 100, 1), OWN_CONNECTIONS_MAX);
           const ext = await linkedinExtract(auth, "extract-connections", {
             linkedin_account_id: accountId,
@@ -990,18 +1000,18 @@ export async function executeTool(name, argsRaw, auth, context = {}) {
         // Ambiguous places require a choice; an API error is not an unknown place.
         let locations = [];
         let resolvedLocation;
-        if (typeof args.location === "string" && args.location.trim()) {
-          const resolved = await resolveLinkedinLocations([args.location.trim()], auth);
+        let resolvedLocations = [];
+        if (requestedLocations.length) {
+          const resolved = await resolveLinkedinLocations(requestedLocations, auth);
           if (resolved.error) return cap(resolved);
           locations = resolved.locations.map(item => item.id);
-          resolvedLocation = resolved.locations[0]?.used;
+          resolvedLocations = resolved.locations;
+          resolvedLocation = resolved.locations.map(item => item.used).join(" ; ");
         }
 
         const filters = {};
-        if (typeof args.title === "string" && args.title.trim()) filters.current_title = args.title.trim();
-        if (typeof args.company === "string" && args.company.trim()) {
-          filters.current_company = args.company.trim();
-        }
+        if (titles.length) filters.current_title = linkedinBooleanOr(titles);
+        if (companies.length) filters.current_company = linkedinBooleanOr(companies);
         if (locations.length) filters.locations = locations;
         if (Object.keys(filters).length === 0) {
           return cap({ error: "Précise au moins un critère : poste, lieu ou entreprise." });
@@ -1010,6 +1020,13 @@ export async function executeTool(name, argsRaw, auth, context = {}) {
         const gen = await generatePeoplesSearchUrl(auth, filters);
         let url = gen.ok ? gen.data?.linkedin_url : undefined;
         if (!url) return cap(linkedinGenerationFailure(gen, 'LinkedIn'));
+        // A generator must not collapse a confirmed OR search to the first value.
+        let generatedUrl;
+        try { generatedUrl = new URL(url); } catch { return cap(linkedinGenerationFailure(gen, 'LinkedIn')); }
+        if ((titles.length > 1 && generatedUrl.searchParams.get('titleFreeText') !== filters.current_title) ||
+          (companies.length > 1 && generatedUrl.searchParams.get('company') !== filters.current_company)) {
+          return cap({ error: 'La recherche générée ne conserve pas tous les postes ou entreprises confirmés. Extraction annulée.', stage: 'search_url_generation' });
+        }
         const connectionFilter = applyConnectionDegrees(url, args.connection_degrees);
         if (connectionFilter.error) return cap(connectionFilter);
         url = connectionFilter.url;
@@ -1029,11 +1046,12 @@ export async function executeTool(name, argsRaw, auth, context = {}) {
           list_id: resultId,
           list_name: target.name,
           criteria_applied: {
-            title: args.title,
-            location_requested: args.location,
+            titles, companies, locations_requested: requestedLocations, locations_resolved: resolvedLocations,
+            title: filters.current_title ?? null,
+            location_requested: requestedLocations.join(" ; "),
             location_used: resolvedLocation ?? null,
             connection_degrees: connectionFilter.degrees,
-            company: args.company,
+            company: filters.current_company ?? null,
             linkedin_account_id: accountId,
             max_results: maxResults,
             ignored_filters: [],

@@ -1,3 +1,5 @@
+import { linkedinBooleanOr } from './linkedin-criteria.js';
+import { SALES_ARRAY_FIELDS, SALES_FLAGS, SALES_TOOL_FIELDS, headCountsForCriteria } from './sales-navigator-criteria.js';
 import { normalizeTargeting, positiveId, validateDatabaseFilters } from './import-targeting.js';
 
 const RUN_TOOL = {
@@ -68,12 +70,18 @@ export function approvedToolArgs(name, raw, approval) {
       args.search = criteria.activity;
       args.locations = criteria.cities;
     } else if (criteria.source === 'linkedin') {
-      args.title = criteria.job_titles[0] ?? '';
+      args.titles = criteria.job_titles;
+      args.locations = criteria.locations;
+      args.companies = criteria.companies;
+      args.title = linkedinBooleanOr(criteria.job_titles);
       args.location = criteria.locations[0] ?? '';
-      args.company = criteria.companies[0] ?? '';
+      args.company = linkedinBooleanOr(criteria.companies);
       args.linkedin_account_id = approval.accountId;
       args.connection_degrees = criteria.connection_degrees;
     } else if (criteria.source === 'sales_navigator') {
+      for (const key of Object.keys(SALES_ARRAY_FIELDS)) args[SALES_TOOL_FIELDS[key]] = criteria[key] ?? [];
+      for (const key of Object.keys(SALES_FLAGS)) args[key] = criteria[key] ?? null;
+      args.company_head_counts = headCountsForCriteria(criteria);
       args.titles = criteria.job_titles;
       args.locations = criteria.locations;
       args.industries = criteria.sectors;

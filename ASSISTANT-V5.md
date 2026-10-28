@@ -724,3 +724,94 @@ Champ additif `connection_degrees: number[]` dans `targeting.criteria`, `update_
 Le Swagger public lu le 7 octobre 2026 ne propose pas ce filtre aux endpoints de génération. Aucun champ API non documenté n'est ajouté : l'URL réellement transmise à l'extraction est enrichie après génération, avec `network=["F"]` sur LinkedIn classique ou la facette Rest.li `(type:RELATIONSHIP,values:List((id:F,selectionType:INCLUDED)))` sur Sales Navigator. Codes F/S/O = 1/2/3+, conformément à [la documentation du fournisseur Lix](https://lix.ae/docs/#sales-navigator-leads-search-parameterized) et au filtre décrit par [LinkedIn](https://www.linkedin.com/help/sales-navigator/answer/a1452817?lang=en). Les autres facettes et paramètres sont préservés ; un format incompatible refuse l'extraction au lieu d'ignorer silencieusement le niveau.
 
 Vérifications : tests locaux des URL, de l'extraction unique simulée, du passage de source en SSE et du verrouillage du choix validé. Le modèle réel `deepseek/deepseek-v4-pro` a aussi émis `[1]` pour LinkedIn, Sales Navigator et le changement de source (critères fictifs ; coût total environ 0,024 $). `node --env-file=.env examples/linkedin-connections-model-smoke.mjs` reproduit ce test ; `CONNECTION_TEST_MODEL` permet de choisir un modèle. Le modèle gratuit local configuré renvoyait HTTP 404. Aucun lancement d'extraction réel ni création de liste : l'acceptation finale de ces URL par un job réel reste à vérifier après déploiement.
+
+## Filtres Sales Navigator — extension du 27 octobre 2026
+
+Le générateur public documente 16 paramètres. Ils sont maintenant accessibles
+par l’assistant et conservés dans `targeting.criteria`, le formulaire à droite,
+l’historique structuré et l’approbation finale. Les champs ajoutés au contrat
+SSE sont optionnels pour les anciens clients ; le nouvel outil `update_targeting`
+les demande à chaque tour pour qu’un retrait de filtre soit explicite.
+
+| Cible structurée / formulaire | Outil run_sales_navigator_targeting | Générateur Magileads |
+| --- | --- | --- |
+| job_titles | titles | current_titles |
+| job_titles_exclude | titles_exclude | current_titles_exclude |
+| locations | locations | locations (IDs entiers résolus) |
+| locations_exclude | locations_exclude | locations_exclude (IDs entiers) |
+| sectors | industries | industries (IDs entiers du catalogue) |
+| sectors_exclude | industries_exclude | industries_exclude (IDs entiers) |
+| seniority | seniority_levels | seniority_levels |
+| seniority_exclude | seniority_levels_exclude | seniority_levels_exclude |
+| companies | companies | current_companies |
+| companies_exclude | companies_exclude | current_companies_exclude |
+| company_head_counts | company_head_counts | company_head_counts |
+| company_headquarters | company_headquarters | company_headquarters (IDs entiers) |
+| company_headquarters_exclude | company_headquarters_exclude | company_headquarters_exclude (IDs entiers) |
+| recently_changed_job | recently_changed_job | recently_changed_job |
+| posted_on_linkedin | posted_on_linkedin | posted_on_linkedin |
+| in_the_news | in_the_news | in_the_news |
+
+Les tableaux de nouveaux critères contiennent des chaînes, six maximum (neuf
+pour les neuf tranches d’effectif documentées). Les noms de lieux, y compris les
+sièges et les exclusions, sont résolus par `/targeting/linkedin/locations/search`.
+Les signaux valent `true` pour activer ; `false` ou `null` signifie aucun filtre,
+pas l’exclusion des personnes correspondant au signal. C’est vérifié sur l’API.
+Les exclusions doivent utiliser les champs dédiés, pas le texte libre `exclusions`.
+
+Le serveur impose les critères et le compte LinkedIn validés, y compris les
+valeurs vides, sur les arguments du modèle. Les anciennes bornes de taille sont
+converties en tranches couvrantes ; le modèle doit indiquer les vraies tranches,
+sans promettre une borne exacte indisponible. Une modification des tranches dans
+le formulaire efface les anciennes bornes. Les nouveaux critères persistent entre
+les sources mais ne s’appliquent qu’à Sales Navigator. Une recherche peut porter
+sur le seul siège ou un signal ; elle n’exige pas une localisation de personne
+inventée. La confirmation humaine reste obligatoire.
+
+Avant extraction, les nouveaux filtres sont vérifiés par différence de l’URL
+lorsqu’on retire chaque valeur. Un signal ou une exclusion non appliqué annule
+le lancement ; aucune extraction élargie silencieuse. Les autres filtres natifs
+non documentés (écoles, ancienneté, langue, etc.) nécessitent une recherche faite
+dans Sales Navigator et son URL collée dans l’import LinkedIn classique de v5.
+
+Vérifications : schéma public `swagger.json`, appel réel au générateur avec les
+16 paramètres (tous présents dans l’URL renvoyée), vérification réelle que les
+signaux à false sont inactifs, tests de mutation simulés et smoke test modèle
+sur une demande française complète puis retrait de filtres. Aucune extraction
+réelle ni liste créée lors de cette vérification. Smoke test reproductible :
+`node --env-file=.env examples/sales-navigator-criteria-smoke.mjs` (appelle le
+modèle configuré par SMOKE_MODEL, DeepSeek Flash par défaut, sans appeler les
+outils d’extraction). Tests locaux : `node --test src/sales-navigator-criteria.test.js`.
+
+## Critères multiples LinkedIn — correction du 28 octobre 2026
+
+Le formulaire LinkedIn classique utilise les mêmes champs multi-valeurs que
+Sales Navigator pour les postes, entreprises et zones. Il ne réduit plus les
+critères au premier élément lors de la préparation du formulaire, de son édition
+ou de sa validation. Les valeurs restent présentes dans l’historique structuré.
+
+`run_linkedin_targeting` accepte désormais `titles?: string[]`,
+`companies?: string[]`, `locations?: string[]` (jusqu’à six valeurs chacune).
+Les anciens paramètres `title`, `company`, `location` restent compatibles.
+Un tableau transmis, même vide, a priorité sur le paramètre scalaire : les
+arguments confirmés ne peuvent pas être remplacés par une valeur du modèle.
+
+Sur LinkedIn classique, le générateur documenté accepte un texte pour le poste
+et l’entreprise : les valeurs sont jointes par OU, avec des guillemets par terme.
+Exemple : `current_title: '"CEO" OR "DG"'` et
+`current_company: '"Magileads" OR "Darty"'`. Le compte ne lance qu’une extraction,
+sur `(CEO OU DG) ET (Magileads OU Darty)`, pas une extraction par combinaison.
+Les zones sont toutes résolues en IDs. Le serveur vérifie que les paramètres
+`titleFreeText` et `company` de l’URL générée conservent la recherche confirmée
+lorsqu’il y a plusieurs valeurs, sinon il annule l’extraction. Le résumé de
+`criteria_applied` comprend les tableaux complets et les zones résolues.
+Sales Navigator continue à recevoir ses tableaux `current_titles` et
+`current_companies`, sans cette conversion en texte booléen.
+
+Vérifications : les deux phrases exactes « tu peux me trouver les ceo et les DG »
+et « tu peux me trouver les ceo et les DG dans les entreprises Magileads et Darty »
+ont été testées contre le modèle, sur un contexte LinkedIn. Les deux postes et
+les deux entreprises sont conservés. Un appel réel au générateur a confirmé les
+deux expressions OU dans l’URL ; aucune liste ni extraction réelle créée.
+Tests de régression : `node --test src/linkedin-criteria.test.js` et
+`node --test scripts/test-assistant-import.mjs` dans le dépôt v5.

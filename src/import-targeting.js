@@ -1,3 +1,4 @@
+import { normalizedSalesCriteria, salesCriteriaErrors, hasSalesTarget, SALES_FLAGS } from './sales-navigator-criteria.js';
 import { readFileSync } from 'node:fs';
 import { applyConnectionDegrees, normalizeConnectionDegrees, validConnectionDegrees } from './linkedin-connections.js';
 import {
@@ -81,6 +82,7 @@ export function normalizeTargeting(input = {}) {
   const source = SOURCES.has(input.source) ? input.source : null;
   const criteria = {
     source,
+    ...normalizedSalesCriteria(input),
     job_titles: words(input.job_titles),
     seniority: words(input.seniority),
     connection_degrees: normalizeConnectionDegrees(input.connection_degrees),
@@ -97,6 +99,7 @@ export function normalizeTargeting(input = {}) {
     missing: [],
   };
   const missing = criteria.missing;
+  if (source === 'sales_navigator') missing.push(...salesCriteriaErrors(input));
   if (!validConnectionDegrees(input.connection_degrees)) missing.push('Choisir des niveaux de connexion valides : 1, 2 ou 3.');
   if (!source) missing.push('Choisir une source de recherche.');
   if (criteria.company_size_min !== null && criteria.company_size_max !== null && criteria.company_size_min > criteria.company_size_max) missing.push('Corriger les bornes de taille d’entreprise.');
@@ -109,14 +112,10 @@ export function normalizeTargeting(input = {}) {
   } else if (source === 'linkedin' && firstDegreeOnly(criteria.connection_degrees)) {
     // The account's own network: complete as it is, with or without a title,
     // company or place to narrow it.
-  } else if (source === 'linkedin' || source === 'sales_navigator') {
-    const professionalCriterion = source === 'linkedin'
-      ? criteria.job_titles.length || criteria.companies.length
-      : criteria.job_titles.length || criteria.companies.length || criteria.sectors.length ||
-        criteria.company_size_min !== null || criteria.company_size_max !== null || criteria.seniority.length;
-    if (!professionalCriterion) missing.push(source === 'linkedin'
-      ? 'Préciser un poste ou une entreprise pour LinkedIn classique.'
-      : 'Préciser un poste, un secteur, une entreprise ou un autre critère professionnel.');
+  } else if (source === 'sales_navigator') {
+    if (!hasSalesTarget(criteria)) missing.push('Préciser au moins un critère Sales Navigator inclus ou un signal actif.');
+  } else if (source === 'linkedin') {
+    if (!criteria.job_titles.length && !criteria.companies.length) missing.push('Préciser un poste ou une entreprise pour LinkedIn classique.');
     if (!criteria.locations.length) missing.push('Préciser une zone géographique.');
   } else if (source === 'database') {
     if (!criteria.job_titles.length && !criteria.sectors.length && !criteria.companies.length && !criteria.activity &&
@@ -249,7 +248,9 @@ function industry(value) {
   if (Object.hasOwn(INDUSTRIES, value)) return { id: String(value), label: INDUSTRIES[value].fr };
   const matches = Object.entries(INDUSTRIES).filter(([, names]) =>
     fold(names.fr) === fold(value) || fold(names.en) === fold(value));
-  return matches.length === 1 ? { id: matches[0][0], label: matches[0][1].fr } : null;
+  const candidates = matches.length ? matches : fold(value).length >= 3 ? Object.entries(INDUSTRIES).filter(([, names]) =>
+    fold(names.fr).startsWith(fold(value)) || fold(names.en).startsWith(fold(value))) : [];
+  return candidates.length === 1 ? { id: candidates[0][0], label: candidates[0][1].fr } : null;
 }
 
 function headCount(value) {
@@ -352,17 +353,18 @@ export async function runSalesNavigator(args, auth, profile) {
   if (validAccount.error) return validAccount;
   const target = await resolveListTarget(args, auth);
   if (target.error) return target;
-  for (const key of ['titles', 'locations', 'industries', 'companies', 'company_head_counts', 'seniority_levels']) {
+  for (const key of ['titles', 'locations', 'industries', 'companies', 'company_head_counts', 'seniority_levels', 'titles_exclude', 'locations_exclude', 'industries_exclude', 'seniority_levels_exclude', 'companies_exclude', 'company_headquarters', 'company_headquarters_exclude']) {
     const values = args[key];
-    if (values != null && (!Array.isArray(values) || values.length > 6 || values.some(value =>
+    if (values != null && (!Array.isArray(values) || values.length > (key === 'company_head_counts' ? 9 : 6) || values.some(value =>
       typeof value !== 'string' || !value.trim() || value.trim().length > 120))) {
-      return { error: `${key} doit être un tableau de six chaînes au maximum.` };
+      return { error: `${key} doit être un tableau de ${key === 'company_head_counts' ? 9 : 6} chaînes au maximum.` };
     }
   }
+  for (const key of Object.keys(SALES_FLAGS)) if (args[key] != null && typeof args[key] !== 'boolean') return { error: `Signal ${key} invalide.` };
   const titles = words(args.titles, 6), requestedLocations = words(args.locations, 6);
   const companies = words(args.companies, 6), requestedIndustries = words(args.industries, 6);
-  if (!requestedLocations.length || !(titles.length || companies.length || requestedIndustries.length || words(args.company_head_counts, 6).length || words(args.seniority_levels, 6).length)) {
-    return { error: 'Précise une zone et au moins un critère professionnel pour Sales Navigator.' };
+  if (!(requestedLocations.length || titles.length || companies.length || requestedIndustries.length || words(args.company_head_counts, 9).length || words(args.seniority_levels, 6).length || words(args.company_headquarters, 6).length || Object.keys(SALES_FLAGS).some(key => args[key] === true))) {
+    return { error: 'Précise au moins un critère Sales Navigator inclus ou un signal actif.' };
   }
   const resolved = await resolveLinkedinLocations(requestedLocations, auth);
   if (resolved.error) return resolved;
@@ -381,22 +383,71 @@ export async function runSalesNavigator(args, auth, profile) {
     payload[key] = mapped.filter(item => item.mapped).map(item =>
       key === 'industries' ? Number(item.mapped.id) : item.mapped.id);
   }
-  const compact = object => Object.fromEntries(Object.entries(object).filter(([, value]) => Array.isArray(value) && value.length));
+  // These additional filters must be verified before extracting. A rejected
+  // exclusion must never silently broaden the confirmed target.
+  const advanced = {};
+  const resolvedAdvanced = {};
+  for (const key of ['locations_exclude', 'company_headquarters', 'company_headquarters_exclude']) {
+    if (!words(args[key], 6).length) continue;
+    const resolved = await resolveLinkedinLocations(args[key], auth);
+    if (resolved.error) return resolved;
+    advanced[key] = resolved.locations.map(item => item.id);
+    resolvedAdvanced[key] = resolved.locations;
+  }
+  for (const [key, mapper] of [
+    ['current_titles_exclude', value => ({ id: value })],
+    ['current_companies_exclude', value => ({ id: value })],
+    ['industries_exclude', industry],
+    ['seniority_levels_exclude', value => seniority(value) && { id: seniority(value) }],
+  ]) {
+    const inputKey = key === 'current_titles_exclude' ? 'titles_exclude' : key === 'current_companies_exclude' ? 'companies_exclude' : key;
+    const values = words(args[inputKey], 6);
+    if (!values.length) continue;
+    const mapped = values.map(mapper);
+    if (mapped.some(item => !item)) return { error: `Filtre d’exclusion ${inputKey} non reconnu. Corrige-le avant extraction.` };
+    advanced[key] = mapped.map(item => key === 'industries_exclude' ? Number(item.id) : item.id);
+  }
+  for (const key of Object.keys(SALES_FLAGS)) if (args[key] === true) advanced[key] = true;
+  const compact = object => Object.fromEntries(Object.entries(object).filter(([, value]) => value === true || (Array.isArray(value) && value.length)));
+
   // Each uncertain facet is tried against the generation endpoint. A facet that
   // leaves the URL unchanged has not been applied and must not enter extraction.
-  const base = compact({ ...payload, industries: [], company_head_counts: [], seniority_levels: [] });
+  const base = compact({ ...payload, industries: [], company_head_counts: [], seniority_levels: [], ...advanced });
+  let seed = null;
+  if (!Object.keys(base).length) {
+    for (const key of ['industries', 'company_head_counts', 'seniority_levels']) if (payload[key]?.length) {
+      seed = { key, value: payload[key][0] };
+      base[key] = [seed.value];
+      break;
+    }
+  }
   let active = base;
   const generated = await generateSalesNavSearchUrl(auth, active);
   let url = salesUrl(generated);
   if (!url) return linkedinGenerationFailure(generated);
-  const withoutLocation = compact({ ...base, locations: [] });
-  const broadUrl = salesUrl(await generateSalesNavSearchUrl(auth, withoutLocation));
-  if (broadUrl && salesFingerprint(broadUrl) === salesFingerprint(url)) {
-    return { error: 'La localisation demandée n’apparaît pas dans l’URL Sales Navigator générée. Extraction annulée.' };
+  for (const [key, value] of Object.entries(advanced)) {
+    const tests = Array.isArray(value) ? value.map((_, index) => value.filter((_, i) => i !== index)) : [null];
+    for (const removed of tests) {
+      const baseline = { ...base, [key]: removed };
+      const response = await generateSalesNavSearchUrl(auth, compact(baseline));
+      const without = salesUrl(response);
+      if ((without && salesFingerprint(without) === salesFingerprint(url)) ||
+        (!without && response.errorKey !== 'empty_linkedin_search_url_parameters')) {
+        return { error: `Le filtre ${key} n’a pas pu être vérifié dans la recherche générée. Extraction annulée pour conserver la cible confirmée.`, unsupported_filters: [key], stage: 'search_url_generation' };
+      }
+    }
+  }
+  if (locations.length || seed) {
+    const without = seed ? {} : compact({ ...base, locations: [] });
+    const broadUrl = salesUrl(await generateSalesNavSearchUrl(auth, without));
+    if (broadUrl && salesFingerprint(broadUrl) === salesFingerprint(url)) {
+      return { error: seed ? 'Le critère demandé n’apparaît pas dans la recherche générée. Extraction annulée.' : 'La localisation demandée n’apparaît pas dans l’URL Sales Navigator générée. Extraction annulée.' };
+    }
   }
   const applied = { industries: [], company_head_counts: [], seniority_levels: [] };
   for (const key of ['industries', 'company_head_counts', 'seniority_levels']) {
     for (const value of payload[key]) {
+      if (seed?.key === key && seed.value === value) { applied[key].push(value); continue; }
       const candidate = compact({ ...active, [key]: [...(active[key] ?? []), value] });
       const next = salesUrl(await generateSalesNavSearchUrl(auth, candidate));
       if (next && salesFingerprint(next) !== salesFingerprint(url)) {
@@ -408,7 +459,7 @@ export async function runSalesNavigator(args, auth, profile) {
       }
     }
   }
-  if (!titles.length && !companies.length && !Object.values(applied).some(values => values.length)) {
+  if (!titles.length && !companies.length && !requestedLocations.length && !Object.keys(advanced).length && !Object.values(applied).some(values => values.length)) {
     return { error: 'Aucun critère professionnel vérifié dans l’URL Sales Navigator ; extraction annulée.', ignored_filters: ignored };
   }
   const maxResults = Math.min(Math.max(Math.trunc(Number(args.max_results)) || 100, 1), 1000);
@@ -431,6 +482,8 @@ export async function runSalesNavigator(args, auth, profile) {
     status: 'extraction lancée', list_id: id, list_name: target.name,
     criteria_applied: {
       titles, locations: locationsResolved, companies,
+      ...advanced,
+      ...(Object.keys(resolvedAdvanced).length ? { locations_resolved: resolvedAdvanced } : {}),
       industries: applied.industries.map(value => ({ id: value, name: INDUSTRIES[value]?.fr ?? value })),
       company_head_counts: applied.company_head_counts, seniority_levels: applied.seniority_levels,
       connection_degrees: connectionFilter.degrees,
