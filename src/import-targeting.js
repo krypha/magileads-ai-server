@@ -1,5 +1,5 @@
 import { normalizedSalesCriteria, salesCriteriaErrors, hasSalesTarget, SALES_FLAGS } from './sales-navigator-criteria.js';
-import { readFileSync } from 'node:fs';
+import { LINKEDIN_INDUSTRIES as INDUSTRIES, resolveLinkedinIndustry, resolveLinkedinIndustries, salesNavigatorIndustriesApplied } from './linkedin-industries.js';
 import { applyConnectionDegrees, normalizeConnectionDegrees, validConnectionDegrees } from './linkedin-connections.js';
 import {
   countDatabaseTargeting,
@@ -12,9 +12,6 @@ import {
   searchLinkedinLocations,
 } from './magileads.js';
 
-// These IDs and labels are copied from the v4 French/English industry selector.
-// The generator still verifies that each selected ID changes the returned URL.
-const INDUSTRIES = JSON.parse(readFileSync(new URL('./linkedin-industries.json', import.meta.url), 'utf8'));
 const SOURCES = new Set(['linkedin', 'sales_navigator', 'database', 'google_maps']);
 const TEXT_FIELDS = new Set(['job_title', 'contact_location', 'company', 'company_size', 'activity', 'category', 'zip_code', 'naf_code', 'country']);
 const PRESENCE_FIELDS = new Set(['phone', 'linkedin_url', 'website', 'summary']);
@@ -74,7 +71,7 @@ export function firstDegreeOnly(degrees) {
 }
 export function ownConnectionsOnly(criteria) {
   return criteria?.source === 'linkedin' && firstDegreeOnly(criteria.connection_degrees) &&
-    !criteria.job_titles?.length && !criteria.companies?.length && !criteria.locations?.length;
+    !criteria.job_titles?.length && !criteria.companies?.length && !criteria.locations?.length && !criteria.sectors?.length;
 }
 
 /** Exact, stable shape for targeting.criteria; readiness is computed, not trusted. */
@@ -99,6 +96,12 @@ export function normalizeTargeting(input = {}) {
     missing: [],
   };
   const missing = criteria.missing;
+  if (source === 'linkedin' || source === 'sales_navigator') {
+    for (const field of ['sectors', 'sectors_exclude']) {
+      const resolved = resolveLinkedinIndustries(criteria[field] ?? [], field);
+      if (resolved.error) missing.push('Choisir un secteur LinkedIn reconnu pour ' + (field === 'sectors' ? 'les secteurs inclus' : 'les secteurs exclus') + '.');
+    }
+  }
   if (source === 'sales_navigator') missing.push(...salesCriteriaErrors(input));
   if (!validConnectionDegrees(input.connection_degrees)) missing.push('Choisir des niveaux de connexion valides : 1, 2 ou 3.');
   if (!source) missing.push('Choisir une source de recherche.');
@@ -244,14 +247,7 @@ export async function usableLinkedInAccount(auth, id, salesOnly = false) {
     : 'Compte LinkedIn invalide, en checkpoint ou non relié à ce compte.' };
 }
 
-function industry(value) {
-  if (Object.hasOwn(INDUSTRIES, value)) return { id: String(value), label: INDUSTRIES[value].fr };
-  const matches = Object.entries(INDUSTRIES).filter(([, names]) =>
-    fold(names.fr) === fold(value) || fold(names.en) === fold(value));
-  const candidates = matches.length ? matches : fold(value).length >= 3 ? Object.entries(INDUSTRIES).filter(([, names]) =>
-    fold(names.fr).startsWith(fold(value)) || fold(names.en).startsWith(fold(value))) : [];
-  return candidates.length === 1 ? { id: candidates[0][0], label: candidates[0][1].fr } : null;
-}
+const industry = resolveLinkedinIndustry;
 
 function headCount(value) {
   const candidate = fold(value) === 'independant' ? 'independant'
@@ -345,6 +341,12 @@ export async function resolveLinkedinLocations(requestedNames, auth) {
 }
 
 export async function runSalesNavigator(args, auth, profile) {
+  args = { ...args };
+  for (const key of ['industries', 'industries_exclude']) {
+    const resolved = resolveLinkedinIndustries(args[key] ?? [], key);
+    if (resolved.error) return resolved;
+    args[key] = resolved.industries.map(item => item.id);
+  }
   if (!validConnectionDegrees(args.connection_degrees)) return { error: 'Niveaux de connexion invalides : utiliser 1, 2 ou 3.' };
   if (!hasPermission(profile, 'accessSearchAI')) return { error: 'Recherche Sales Navigator non autorisée pour ce compte.' };
   const accountId = positiveId(args.linkedin_account_id);
@@ -375,7 +377,7 @@ export async function runSalesNavigator(args, auth, profile) {
   const payload = { current_titles: titles, locations, current_companies: companies };
   for (const [key, values, mapper] of [
     ['industries', requestedIndustries, industry],
-    ['company_head_counts', words(args.company_head_counts, 6), value => headCount(value) && { id: headCount(value), label: value }],
+    ['company_head_counts', words(args.company_head_counts, 9), value => headCount(value) && { id: headCount(value), label: value }],
     ['seniority_levels', words(args.seniority_levels, 6), value => seniority(value) && { id: seniority(value), label: value }],
   ]) {
     const mapped = values.map(value => ({ value, mapped: mapper(value) }));
@@ -455,6 +457,11 @@ export async function runSalesNavigator(args, auth, profile) {
         url = next;
         applied[key].push(value);
       } else {
+        if (key === 'industries') return {
+          error: 'Un secteur confirmé est absent de la recherche générée. Choisir un autre secteur LinkedIn avant de relancer.',
+          error_key: 'linkedin_industry_not_applied', requires_user_choice: true,
+          unsupported_filters: [key], stage: 'search_url_generation',
+        };
         ignored.push(`${key}: « ${value} » absent de l’URL générée ou refusé par l’API.`);
       }
     }
@@ -462,6 +469,11 @@ export async function runSalesNavigator(args, auth, profile) {
   if (!titles.length && !companies.length && !requestedLocations.length && !Object.keys(advanced).length && !Object.values(applied).some(values => values.length)) {
     return { error: 'Aucun critère professionnel vérifié dans l’URL Sales Navigator ; extraction annulée.', ignored_filters: ignored };
   }
+  if ((applied.industries.length || advanced.industries_exclude?.length) &&
+    !salesNavigatorIndustriesApplied(url, applied.industries, advanced.industries_exclude ?? [])) return {
+      error: 'Les secteurs confirmés ne figurent pas tous dans la recherche Sales Navigator. Choisir un autre secteur avant de relancer.',
+      error_key: 'linkedin_industry_not_applied', requires_user_choice: true, stage: 'search_url_generation',
+    };
   const maxResults = Math.min(Math.max(Math.trunc(Number(args.max_results)) || 100, 1), 1000);
   const generateEmail = args.generate_email !== false;
   const connectionFilter = applyConnectionDegrees(url, args.connection_degrees, true);

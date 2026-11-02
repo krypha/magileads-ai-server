@@ -73,6 +73,7 @@ export function approvedToolArgs(name, raw, approval) {
       args.titles = criteria.job_titles;
       args.locations = criteria.locations;
       args.companies = criteria.companies;
+      args.industries = criteria.sectors;
       args.title = linkedinBooleanOr(criteria.job_titles);
       args.location = criteria.locations[0] ?? '';
       args.company = linkedinBooleanOr(criteria.companies);

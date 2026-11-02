@@ -1,3 +1,4 @@
+import { searchLinkedinIndustries, resolveLinkedinIndustries } from './linkedin-industries.js';
 import { linkedinValues, linkedinBooleanOr } from './linkedin-criteria.js';
 import { SALES_CRITERIA_SCHEMA, SALES_RUN_SCHEMA } from './sales-navigator-criteria.js';
 import { sanitize, forbiddenOperation } from './assistant-policy.js';
@@ -84,6 +85,15 @@ const CONTACT_LIST_QUERY_SCHEMA = {
 
 export const AI_TOOLS = [
   DOCUMENT_TOOL,
+  {
+    type: 'function', function: {
+      name: 'search_linkedin_industries',
+      description: 'Recherche les vrais secteurs LinkedIn : IDs, libellés français et anglais. OBLIGATOIRE pour traduire un secteur demandé en langage naturel avant de proposer la cible LinkedIn ou Sales Navigator. Sélectionner une correspondance claire du catalogue ; si ambiguë ou absente, demander au client quel secteur choisir. Lecture seule, sans appel API, sans carte. Une recherche vide retourne le catalogue complet.',
+      parameters: { type: 'object', additionalProperties: false, properties: {
+        query: { type: 'string', description: 'Secteur demandé ou mot-clé métier, 120 caractères maximum. Vide pour tout le catalogue.' },
+      } },
+    },
+  },
   ...EXTENDED_TOOLS,
   ...PRM_TOOLS,
   {
@@ -123,7 +133,7 @@ export const AI_TOOLS = [
           job_titles: { type: 'array', items: { type: 'string' } },
           seniority: { type: 'array', items: { type: 'string' } },
           connection_degrees: CONNECTION_DEGREES_SCHEMA,
-          sectors: { type: 'array', items: { type: 'string' } },
+          sectors: { type: 'array', items: { type: 'string' }, description: 'LinkedIn/Sales Navigator : libellés exacts retournés par search_linkedin_industries ; jamais un secteur inventé. Si indéterminé, conserve la demande puis demande de choisir.' },
           company_size_min: { type: ['number', 'null'] },
           company_size_max: { type: ['number', 'null'] },
           locations: { type: 'array', items: { type: 'string' } },
@@ -408,6 +418,7 @@ export const AI_TOOLS = [
           },
           list_name: { type: "string", description: "Nom de la liste à créer ; exclusif avec contact_list_id." },
           contact_list_id: { type: 'number', description: 'ID d’une liste existante à alimenter, à la place de list_name.' },
+          industries: { type: 'array', maxItems: 6, items: { type: 'string' }, description: 'Secteurs inclus, libellés ou IDs réels obtenus par search_linkedin_industries.' },
           titles: { type: 'array', maxItems: 6, items: { type: 'string' }, description: 'TOUS les postes demandés, ex. ["CEO", "DG"]. Recherche OU entre ces postes. Prioritaire sur title, même vide.' },
           companies: { type: 'array', maxItems: 6, items: { type: 'string' }, description: 'TOUTES les entreprises demandées, ex. ["Magileads", "Darty"]. Recherche OU entre ces entreprises. Prioritaire sur company, même vide.' },
           locations: { type: 'array', maxItems: 6, items: { type: 'string' }, description: 'Toutes les zones demandées, résolues en IDs. Prioritaire sur location, même vide.' },
@@ -485,6 +496,7 @@ export const TOOL_LABELS = {
   run_google_maps_targeting: "Ciblage Google Maps",
   update_targeting: 'Mise à jour de la cible',
   search_linkedin_locations: 'Recherche des localisations LinkedIn',
+  search_linkedin_industries: 'Recherche des secteurs LinkedIn',
   count_database_targeting: 'Comptage',
   run_database_targeting: 'Base Magileads',
   run_sales_navigator_targeting: 'Ciblage Sales Navigator',
@@ -587,6 +599,7 @@ export async function executeTool(name, argsRaw, auth, context = {}) {
     // Documents are already validated and sanitized, and transmitted as a card.
     // Do not truncate their contents into a preview that cannot be downloaded.
     if (name === 'create_document') return JSON.stringify(createDocument(args));
+    if (name === 'search_linkedin_industries') return cap(searchLinkedinIndustries(args.query), 100000);
     if (name === 'search_linkedin_locations') return cap(await lookupLinkedinLocations(args.name, auth));
     if (name === 'copy_contacts_to_list') return cap(await copyContactsToList(args, auth, context), 32000);
     if (name === 'update_targeting') {
@@ -950,6 +963,9 @@ export async function executeTool(name, argsRaw, auth, context = {}) {
       }
 
       case "run_linkedin_targeting": {
+        const sectorResult = resolveLinkedinIndustries(args.industries ?? []);
+        if (sectorResult.error) return cap(sectorResult);
+        const industries = sectorResult.industries.map(item => Number(item.id));
         if (!validConnectionDegrees(args.connection_degrees)) return cap({ error: 'Niveaux de connexion invalides : utiliser 1, 2 ou 3.' });
         const accountId = Number(args.linkedin_account_id);
         if (!Number.isFinite(accountId) || accountId <= 0) {
@@ -968,7 +984,7 @@ export async function executeTool(name, argsRaw, auth, context = {}) {
         // account's whole network, extracted by its own route rather than by a
         // people search with no keyword (which the URL generator refuses).
         if (firstDegreeOnly(normalizeConnectionDegrees(args.connection_degrees)) &&
-          !titles.length && !requestedLocations.length && !companies.length) {
+          !titles.length && !requestedLocations.length && !companies.length && !industries.length) {
           const max = Math.min(Math.max(Math.trunc(Number(args.max_results)) || 100, 1), OWN_CONNECTIONS_MAX);
           const ext = await linkedinExtract(auth, "extract-connections", {
             linkedin_account_id: accountId,
@@ -1013,6 +1029,7 @@ export async function executeTool(name, argsRaw, auth, context = {}) {
         if (titles.length) filters.current_title = linkedinBooleanOr(titles);
         if (companies.length) filters.current_company = linkedinBooleanOr(companies);
         if (locations.length) filters.locations = locations;
+        if (industries.length) filters.industries = industries;
         if (Object.keys(filters).length === 0) {
           return cap({ error: "Précise au moins un critère : poste, lieu ou entreprise." });
         }
@@ -1026,6 +1043,14 @@ export async function executeTool(name, argsRaw, auth, context = {}) {
         if ((titles.length > 1 && generatedUrl.searchParams.get('titleFreeText') !== filters.current_title) ||
           (companies.length > 1 && generatedUrl.searchParams.get('company') !== filters.current_company)) {
           return cap({ error: 'La recherche générée ne conserve pas tous les postes ou entreprises confirmés. Extraction annulée.', stage: 'search_url_generation' });
+        }
+        if (industries.length) {
+          let actual;
+          try { actual = JSON.parse(generatedUrl.searchParams.get('industry')); } catch { /* invalid URL facet */ }
+          if (!Array.isArray(actual) || industries.some(id => !actual.map(String).includes(String(id)))) return cap({
+            error: 'La recherche LinkedIn générée ne contient pas tous les secteurs confirmés. Choisir un autre secteur avant de relancer.',
+            error_key: 'linkedin_industry_not_applied', requires_user_choice: true, stage: 'search_url_generation',
+          });
         }
         const connectionFilter = applyConnectionDegrees(url, args.connection_degrees);
         if (connectionFilter.error) return cap(connectionFilter);
@@ -1046,7 +1071,7 @@ export async function executeTool(name, argsRaw, auth, context = {}) {
           list_id: resultId,
           list_name: target.name,
           criteria_applied: {
-            titles, companies, locations_requested: requestedLocations, locations_resolved: resolvedLocations,
+            titles, companies, industries: sectorResult.industries, locations_requested: requestedLocations, locations_resolved: resolvedLocations,
             title: filters.current_title ?? null,
             location_requested: requestedLocations.join(" ; "),
             location_used: resolvedLocation ?? null,

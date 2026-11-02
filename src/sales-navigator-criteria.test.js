@@ -59,7 +59,10 @@ async function fixture(t, ignored) {
         else delete effective[ignored];
         if (Array.isArray(effective[ignored]) && !effective[ignored].length) delete effective[ignored];
       }
-      return Response.json({ linkedin_url: `https://www.linkedin.com/sales/search/people?criteria=${encodeURIComponent(JSON.stringify(effective))}` });
+      const industryValues = [...(effective.industries ?? []).map(id => '(id:' + id + ',selectionType:INCLUDED)'),
+        ...(effective.industries_exclude ?? []).map(id => '(id:' + id + ',selectionType:EXCLUDED)')];
+      const query = industryValues.length ? '(filters:List((type:INDUSTRY,values:List(' + industryValues.join(',') + '))))' : '';
+      return Response.json({ linkedin_url: 'https://www.linkedin.com/sales/search/people?' + new URLSearchParams({ criteria: JSON.stringify(effective), query }) });
     }
     if (path === '/targeting/linkedin/extract-sales-navigator-peoples-search') { extracted.push(body); return Response.json({ contact_list_id: 42 }); }
     throw Error(`Unexpected ${path}`);

@@ -815,3 +815,62 @@ les deux entreprises sont conservés. Un appel réel au générateur a confirmé
 deux expressions OU dans l’URL ; aucune liste ni extraction réelle créée.
 Tests de régression : `node --test src/linkedin-criteria.test.js` et
 `node --test scripts/test-assistant-import.mjs` dans le dépôt v5.
+
+## LinkedIn industry resolution (2026-11-02)
+
+The assistant must resolve included and excluded industries against the shared
+433-entry French/English LinkedIn catalog before offering a target. It uses the
+new read-only tool `search_linkedin_industries` (available in import and chat).
+
+Input:
+```json
+{"query":"SaaS"}
+```
+`query` is optional, maximum 120 characters; an empty query returns the full
+catalog. Results have this shape:
+```json
+{
+  "query":"SaaS",
+  "industries":[{"id":"4","name_fr":"Développement de logiciels","name_en":"Software Development"}],
+  "total":1,
+  "note":"..."
+}
+```
+The example shows the shape, not an exhaustive SaaS search result. `match` is
+also present for an unambiguous recognized ID/name/prefix. Search synonyms only
+help discover candidates: they never authorize automatic industry resolution.
+The model selects an appropriate exact returned label for a clear request. If
+there is no clear match or several meanings remain possible, it asks the user
+which real LinkedIn sector to choose, then waits. No invented ID or silent
+fallback to an unfiltered search is permitted.
+
+The `targeting.criteria` event retains its existing schema. Its `sectors` and
+`sectors_exclude` arrays hold the actual selected labels (old numeric-string
+IDs remain accepted). Unknown/ambiguous values remain visible but cause
+`ready_to_launch:false` and a French entry in `missing`. Database industries and
+Google Maps activities are not subject to the LinkedIn catalog.
+
+Every run validates industries again, including calls outside import mode.
+An unresolved value returns `error_key:"linkedin_industry_choice_required"`,
+`requires_user_choice:true`, and `unresolved:[{requested,candidates}]` before
+any API request. A confirmed sector missing from a generated search cancels
+extraction with `linkedin_industry_not_applied`. Sales Navigator checks exact
+INCLUDED/EXCLUDED IDs in its INDUSTRY facet. Classic LinkedIn now receives
+`industries:string[]` from the reviewed `sectors` and sends numeric IDs in the
+generator's `industries` field, then checks the URL's `industry` array.
+
+Verification:
+- 189 server tests pass, including real HTTP/SSE against fixture upstreams:
+  unresolved target -> catalog tool -> exact sector update; no creation,
+  extraction, mutation event or card before approval.
+- Fixtures also cover unknown/excluded industries, dropped/substituted IDs,
+  confirmation overriding model-supplied sectors, and both search engines.
+- Live model-only smoke: `node --env-file=.env examples/linkedin-industries-smoke.mjs`.
+  DeepSeek Flash queried the catalog, mapped SaaS to Développement de logiciels,
+  and asked the user to choose for an ambiguous healthcare target. No Magileads
+  business API call or extraction in this smoke.
+- Real Magileads account 777: classic generator with industries [4,96] returned
+  `industry=["4","96"]`; Sales Navigator generator with included [4,96] and
+  excluded [104] returned those exact IDs and selection types in INDUSTRY.
+  These live API calls only generated search URLs. No list or extraction was
+  created; extracted LinkedIn contacts and browser interaction were not tested.

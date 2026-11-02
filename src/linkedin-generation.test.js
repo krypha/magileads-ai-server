@@ -39,6 +39,7 @@ test('Sales Navigator uses v4 JSON integer IDs, linkedin_url and exactly one ext
       assert.equal(body.linkedin_account_id, undefined);
       const query = new URLSearchParams();
       for (const [key, values] of Object.entries(body)) query.set(key, JSON.stringify(values));
+      if (body.industries?.length) query.set('query', '(filters:List((type:INDUSTRY,values:List(' + body.industries.map(id => '(id:' + id + ',selectionType:INCLUDED)').join(',') + '))))');
       return Response.json({ state: true, linkedin_url: `https://www.linkedin.com/sales/search/people?${query}` });
     }
     if (path.endsWith('/extract-sales-navigator-peoples-search')) {
