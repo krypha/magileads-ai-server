@@ -34,7 +34,7 @@ import { IncludedWorkload } from './request-policy.js';
 import { usageLimitsEnabled } from './usage-policy.js';
 import { documentReceipt } from './documents.js';
 import { readPrmPageContext } from './prm.js';
-import { readImportTargeting, runSalesNavigator } from './import-targeting.js';
+import { hasPermission, normalizeTargeting, ownConnectionsOnly, readImportTargeting, runSalesNavigator, usableLinkedInAccount } from './import-targeting.js';
 import { languageInstruction } from './language.js';
 
 const PORT = Number(process.env.PORT) || 8787;
@@ -296,10 +296,28 @@ async function handleChat(req, res, cors) {
   // The current import UI has a separate review form. A typed "go" is not its
   // final confirmation; legacy clients without an explicit mode keep their
   // historical text approval for compatibility.
-  const approval = importMode && (body.mode !== 'import' || body.import_approval != null)
+  let approval = importMode && (body.mode !== 'import' || body.import_approval != null)
     ? explicitImportApproval(allMessages, body.import_approval) : null;
   if (body.import_approval != null && !approval) {
     return json(res, 400, { ok: false, errorKey: 'invalid_import_approval' }, cors);
+  }
+  if (approval?.accountId && ['linkedin', 'sales_navigator'].includes(approval.criteria?.source)) {
+    const { account } = await usableLinkedInAccount(auth, approval.accountId);
+    if (!account) return json(res, 400, { ok: false, errorKey: 'linkedin_import_account_unavailable' }, cors);
+    const salesAccount = account.is_sales_navigator_account === true;
+    const salesSearch = approval.criteria.source === 'sales_navigator' ||
+      (salesAccount && !ownConnectionsOnly(approval.criteria));
+    if (salesSearch) {
+      if (!salesAccount) return json(res, 400, { ok: false, errorKey: 'linkedin_import_account_unavailable' }, cors);
+      if (!hasPermission(profile, 'accessSearchAI')) {
+        return json(res, 403, { ok: false, errorKey: 'sales_navigator_forbidden' }, cors);
+      }
+      if (approval.criteria.source === 'linkedin') {
+        const criteria = normalizeTargeting({ ...approval.criteria, source: 'sales_navigator' });
+        if (!criteria.ready_to_launch) return json(res, 400, { ok: false, errorKey: 'invalid_import_approval' }, cors);
+        approval = { ...approval, criteria };
+      }
+    }
   }
   if (approval?.companyBatches) return handleCompanyFileImport(res, cors, auth, profile, approval);
   if (approval?.criteria) {
@@ -472,7 +490,7 @@ async function handleChat(req, res, cors) {
   let failed = false;
   let launchAttempted = false;
   let targetingReady = false;
-  const toolContext = { profile, enforceUsageLimits, copyAttempts: new Set(),
+  const toolContext = { profile, importMode, enforceUsageLimits, copyAttempts: new Set(),
     // What the user wrote last, for the confirmations only they can give.
     lastUserMessage: clientMessages.at(-1).content,
     prmPage: readPrmPageContext(clientMessages.at(-1).content),

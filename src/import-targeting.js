@@ -266,7 +266,8 @@ function salesUrl(response) {
   if (typeof raw !== 'string') return null;
   try {
     const url = new URL(raw);
-    return url.protocol === 'https:' && /(^|\.)linkedin\.com$/i.test(url.hostname) ? url.toString() : null;
+    return url.protocol === 'https:' && /(^|\.)linkedin\.com$/i.test(url.hostname) &&
+      /^\/sales\/search\/people\/?$/.test(url.pathname) ? url.toString() : null;
   } catch { return null; }
 }
 

@@ -1026,6 +1026,9 @@ export async function executeTool(name, argsRaw, auth, context = {}) {
           resolvedLocation = resolved.locations.map(item => item.used).join(" ; ");
         }
 
+        if (context.importMode && account.account.is_sales_navigator_account === true) {
+          return cap({ error: 'Ce compte utilise Sales Navigator. Valide la cible avec ce compte dans le formulaire pour lancer une recherche Sales Navigator.' });
+        }
         const filters = {};
         if (titles.length) filters.current_title = linkedinBooleanOr(titles);
         if (companies.length) filters.current_company = linkedinBooleanOr(companies);
@@ -1041,6 +1044,8 @@ export async function executeTool(name, argsRaw, auth, context = {}) {
         // A generator must not collapse a confirmed OR search to the first value.
         let generatedUrl;
         try { generatedUrl = new URL(url); } catch { return cap(linkedinGenerationFailure(gen, 'LinkedIn')); }
+        if (generatedUrl.protocol !== 'https:' || !/(^|\.)linkedin\.com$/i.test(generatedUrl.hostname) ||
+          !/^\/search\/results\/people\/?$/.test(generatedUrl.pathname)) return cap(linkedinGenerationFailure(gen, 'LinkedIn'));
         if ((titles.length > 1 && generatedUrl.searchParams.get('titleFreeText') !== filters.current_title) ||
           (companies.length > 1 && generatedUrl.searchParams.get('company') !== filters.current_company)) {
           return cap({ error: 'La recherche générée ne conserve pas tous les postes ou entreprises confirmés. Extraction annulée.', stage: 'search_url_generation' });
