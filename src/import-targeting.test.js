@@ -127,7 +127,7 @@ test('Sales Navigator verifies facets in generated URLs, uses only a real accoun
       assert.match(body.linkedin_sales_navigator_search_url, /companySize=51-200/);
       assert.equal(body.linkedin_people_search_url, body.linkedin_sales_navigator_search_url);
       assert.equal(body.generate_email, true);
-      assert.equal(body.max_results, 1000);
+      assert.equal(body.max_results, 2500);
       return Response.json({ state: true, contact_list_id: 77 });
     }
     throw new Error(`unexpected ${path}`);
@@ -135,7 +135,7 @@ test('Sales Navigator verifies facets in generated URLs, uses only a real accoun
   try {
     const card = JSON.parse(await executeTool('ask_linkedin_account', '{"sales_navigator_only":true}', auth, { profile }));
     assert.deepEqual(card.accounts.map(account => account.id), [7]);
-    const args = { titles: ['Directeur'], locations: ['France'], company_head_counts: ['51-200'], seniority_levels: ['director'], linkedin_account_id: 7, list_name: 'Dirigeants France', max_results: 1200 };
+    const args = { titles: ['Directeur'], locations: ['France'], company_head_counts: ['51-200'], seniority_levels: ['director'], linkedin_account_id: 7, list_name: 'Dirigeants France', max_results: 2501 };
     const result = JSON.parse(await executeTool('run_sales_navigator_targeting', JSON.stringify(args), auth, { profile }));
     assert.equal(result.list_id, 77);
     assert.deepEqual(result.criteria_applied.company_head_counts, ['51-200']);

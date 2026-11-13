@@ -20,9 +20,24 @@ export function parseImportApproval(submitted) {
   let criteria = null;
   let filters = null;
   let accountId = null;
+  let companyBatches = null;
+  if (Object.hasOwn(submitted, 'company_file')) {
+    const companies = submitted.company_file?.companies;
+    if (submitted.targeting?.source !== 'sales_navigator' || !Array.isArray(companies) ||
+      companies.length === 0 || companies.length > 500 ||
+      companies.some(name => typeof name !== 'string' || !name.trim() || name.trim().length > 120)) return null;
+    const names = [...new Map(companies.map(name => [name.trim().toLowerCase(), name.trim()])).values()];
+    companyBatches = [];
+    for (let i = 0; i < names.length; i += 50) companyBatches.push(names.slice(i, i + 50));
+  }
   if (submitted.targeting != null) {
     if (typeof submitted.targeting !== 'object' || Array.isArray(submitted.targeting)) return null;
-    criteria = normalizeTargeting(submitted.targeting);
+    // Only a sample is needed to validate readiness. The full file stays separate.
+    criteria = normalizeTargeting(companyBatches
+      ? { ...submitted.targeting, companies: companyBatches[0].slice(0, 6) }
+      : submitted.targeting, companyBatches?.length ?? 1);
+    if (companyBatches && (!Number.isSafeInteger(submitted.targeting.max_results) ||
+      submitted.targeting.max_results < companyBatches.length)) return null;
     if (!criteria.ready_to_launch ||
       (submitted.targeting.max_results != null && submitted.targeting.max_results !== criteria.max_results)) return null;
     if (criteria.source === 'database') {
@@ -37,7 +52,7 @@ export function parseImportApproval(submitted) {
   } else if (submitted.filters != null || submitted.linkedin_account_id != null) {
     return null;
   }
-  return { name, listId, criteria, filters, accountId };
+  return { name, listId, criteria, filters, accountId, ...(companyBatches ? { companyBatches } : {}) };
 }
 
 export function approvedRunTool(approval) {

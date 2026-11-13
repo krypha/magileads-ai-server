@@ -34,7 +34,7 @@ import { IncludedWorkload } from './request-policy.js';
 import { usageLimitsEnabled } from './usage-policy.js';
 import { documentReceipt } from './documents.js';
 import { readPrmPageContext } from './prm.js';
-import { readImportTargeting } from './import-targeting.js';
+import { readImportTargeting, runSalesNavigator } from './import-targeting.js';
 import { languageInstruction } from './language.js';
 
 const PORT = Number(process.env.PORT) || 8787;
@@ -208,6 +208,41 @@ function rateLimited(key) {
 
 /* ------------------------------ the SSE chat ------------------------------ */
 
+async function handleCompanyFileImport(res, cors, auth, profile, approval) {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    'X-Accel-Buffering': 'no',
+    ...cors,
+  });
+  const emit = (name, data) => {
+    if (!res.destroyed) res.write('event: ' + name + '\ndata: ' + JSON.stringify(data) + '\n\n');
+  };
+  const total = approval.companyBatches.length;
+  const tool = 'run_sales_navigator_targeting';
+  const heartbeat = setInterval(() => { if (!res.destroyed) res.write(': keep-alive\n\n'); }, HEARTBEAT_MS);
+  emit('tool.progress', { tool, status: 'running', label: TOOL_LABELS[tool], creates_list: true });
+  let result;
+  try {
+    const args = JSON.parse(approvedToolArgs(tool, '{"generate_email":true}', approval));
+    result = await runSalesNavigator(args, auth, profile, approval.companyBatches);
+  } catch {
+    // An unexpected error may occur after submission. Avoid offering a replay.
+    result = { attempted: true };
+  } finally {
+    clearInterval(heartbeat);
+  }
+  const submitted = result.submitted ?? 0;
+  emit('targeting.company_batches', { submitted, total, attempted: result.attempted === true,
+    list_id: result.list_id ?? approval.listId, list_name: result.list_name ?? approval.name });
+  emit('tool.progress', { tool, status: 'completed', creates_list: Boolean(submitted && result.list_id) });
+  if (submitted && result.list_id) {
+    emit('assistant.changed', {});
+    for (const card of cardsForTool(tool, JSON.stringify(result))) emit('assistant.card', card);
+  }
+  if (!res.destroyed) res.end('data: [DONE]\n\n');
+}
+
 async function handleChat(req, res, cors) {
   // Authenticate before buffering a potentially large conversation.
   const caller = await authenticate(req, res, cors);
@@ -266,6 +301,7 @@ async function handleChat(req, res, cors) {
   if (body.import_approval != null && !approval) {
     return json(res, 400, { ok: false, errorKey: 'invalid_import_approval' }, cors);
   }
+  if (approval?.companyBatches) return handleCompanyFileImport(res, cors, auth, profile, approval);
   if (approval?.criteria) {
     clientMessages.at(-1).content += `\n\nCritères confirmés dans le formulaire : ${JSON.stringify(approval.criteria)}. Utilise uniquement la source et les valeurs confirmées.`;
     if (approval.accountId) clientMessages.at(-1).content += `\nCompte LinkedIn choisi dans le formulaire : ID ${approval.accountId}.`;

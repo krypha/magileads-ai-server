@@ -22,6 +22,7 @@ import {
   linkedinGenerationFailure,
   firstDegreeOnly,
   OWN_CONNECTIONS_MAX,
+  SALES_NAVIGATOR_MAX,
 } from './import-targeting.js';
 /**
  * AI tools (OpenAI-compatible function schemas) + their executor.
@@ -186,7 +187,7 @@ export const AI_TOOLS = [
         seniority_levels: { type: 'array', items: { type: 'string', enum: ['in_training', 'entry_level', 'senior', 'strategic', 'entry_level_manager', 'experienced_manager', 'director', 'vice_president', 'cxo', 'owner_partner'] } },
         connection_degrees: CONNECTION_DEGREES_SCHEMA,
         linkedin_account_id: { type: 'number' }, list_name: { type: 'string' }, contact_list_id: { type: 'number' },
-        max_results: { type: 'number', description: 'Défaut 100, max 1000.' }, generate_email: { type: 'boolean', description: 'Défaut true.' },
+        max_results: { type: 'number', description: 'Défaut 100, max ' + SALES_NAVIGATOR_MAX + '.' }, generate_email: { type: 'boolean', description: 'Défaut true.' },
       }, required: ['linkedin_account_id'] },
     },
   },

@@ -1,6 +1,6 @@
 import { normalizedSalesCriteria, salesCriteriaErrors, hasSalesTarget, SALES_FLAGS } from './sales-navigator-criteria.js';
 import { LINKEDIN_INDUSTRIES as INDUSTRIES, resolveLinkedinIndustry, resolveLinkedinIndustries, salesNavigatorIndustriesApplied } from './linkedin-industries.js';
-import { applyConnectionDegrees, normalizeConnectionDegrees, validConnectionDegrees } from './linkedin-connections.js';
+import { applyConnectionDegrees, normalizeConnectionDegrees, validConnectionDegrees, listContents } from './linkedin-connections.js';
 import {
   countDatabaseTargeting,
   extractDatabaseTargeting,
@@ -66,6 +66,7 @@ export function updateImportTargeting(input, previous) {
  * import form's "Mes connexions", up to 30,000) rather than a people search.
  */
 export const OWN_CONNECTIONS_MAX = 30000;
+export const SALES_NAVIGATOR_MAX = 2500;
 export function firstDegreeOnly(degrees) {
   return Array.isArray(degrees) && degrees.length === 1 && degrees[0] === 1;
 }
@@ -75,7 +76,7 @@ export function ownConnectionsOnly(criteria) {
 }
 
 /** Exact, stable shape for targeting.criteria; readiness is computed, not trusted. */
-export function normalizeTargeting(input = {}) {
+export function normalizeTargeting(input = {}, salesNavigatorBatches = 1) {
   const source = SOURCES.has(input.source) ? input.source : null;
   const criteria = {
     source,
@@ -107,7 +108,7 @@ export function normalizeTargeting(input = {}) {
   if (!source) missing.push('Choisir une source de recherche.');
   if (criteria.company_size_min !== null && criteria.company_size_max !== null && criteria.company_size_min > criteria.company_size_max) missing.push('Corriger les bornes de taille d’entreprise.');
   const maxAllowed = source === 'google_maps' ? 200 : source === 'database' ? 10000
-    : ownConnectionsOnly(criteria) ? OWN_CONNECTIONS_MAX : 1000;
+    : source === 'sales_navigator' ? SALES_NAVIGATOR_MAX * salesNavigatorBatches : ownConnectionsOnly(criteria) ? OWN_CONNECTIONS_MAX : 1000;
   if (criteria.max_results !== null && criteria.max_results > maxAllowed) missing.push(`Cette source accepte au plus ${maxAllowed} résultats.`);
   if (source === 'google_maps') {
     if (!criteria.activity) missing.push('Préciser une activité.');
@@ -340,7 +341,29 @@ export async function resolveLinkedinLocations(requestedNames, auth) {
   return { locations };
 }
 
-export async function runSalesNavigator(args, auth, profile) {
+// The generator percent-encodes each name within the Rest.li query.
+function salesCompanyBatchSignature(raw, included, excluded) {
+  const query = new URL(raw).searchParams.get('query');
+  const match = query?.match(/(?:^|[(,])filters:List\(/);
+  if (!match) return null;
+  const list = listContents(query, match.index + match[0].length);
+  if (!list) return null;
+  const companyFacets = list.items.filter(item => item.startsWith('(type:CURRENT_COMPANY,'));
+  if (companyFacets.length !== 1) return null;
+  const values = { INCLUDED: [], EXCLUDED: [] };
+  try {
+    for (const [, name, selection] of companyFacets[0].matchAll(/\(text:([^(),]*),selectionType:(INCLUDED|EXCLUDED)\)/g)) {
+      values[selection].push(decodeURIComponent(name));
+    }
+  } catch {
+    return null;
+  }
+  if (JSON.stringify(values.INCLUDED.sort()) !== JSON.stringify([...included].sort()) ||
+    JSON.stringify(values.EXCLUDED.sort()) !== JSON.stringify([...excluded].sort())) return null;
+  return JSON.stringify(list.items.filter(item => item !== companyFacets[0]).sort());
+}
+
+export async function runSalesNavigator(args, auth, profile, companyBatches = null) {
   args = { ...args };
   for (const key of ['industries', 'industries_exclude']) {
     const resolved = resolveLinkedinIndustries(args[key] ?? [], key);
@@ -364,7 +387,7 @@ export async function runSalesNavigator(args, auth, profile) {
   }
   for (const key of Object.keys(SALES_FLAGS)) if (args[key] != null && typeof args[key] !== 'boolean') return { error: `Signal ${key} invalide.` };
   const titles = words(args.titles, 6), requestedLocations = words(args.locations, 6);
-  const companies = words(args.companies, 6), requestedIndustries = words(args.industries, 6);
+  const companies = companyBatches?.[0] ?? words(args.companies, 6), requestedIndustries = words(args.industries, 6);
   if (!(requestedLocations.length || titles.length || companies.length || requestedIndustries.length || words(args.company_head_counts, 9).length || words(args.seniority_levels, 6).length || words(args.company_headquarters, 6).length || Object.keys(SALES_FLAGS).some(key => args[key] === true))) {
     return { error: 'Précise au moins un critère Sales Navigator inclus ou un signal actif.' };
   }
@@ -474,7 +497,8 @@ export async function runSalesNavigator(args, auth, profile) {
       error: 'Les secteurs confirmés ne figurent pas tous dans la recherche Sales Navigator. Choisir un autre secteur avant de relancer.',
       error_key: 'linkedin_industry_not_applied', requires_user_choice: true, stage: 'search_url_generation',
     };
-  const maxResults = Math.min(Math.max(Math.trunc(Number(args.max_results)) || 100, 1), 1000);
+  const maxResults = Math.min(Math.max(Math.trunc(Number(args.max_results)) || 100, 1),
+    SALES_NAVIGATOR_MAX * (companyBatches?.length ?? 1));
   const generateEmail = args.generate_email !== false;
   const connectionFilter = applyConnectionDegrees(url, args.connection_degrees, true);
   if (connectionFilter.error) return connectionFilter;
@@ -482,6 +506,59 @@ export async function runSalesNavigator(args, auth, profile) {
   const endpoint = hasPermission(profile, 'useAlternativeTargeting')
     ? 'extract-sales-navigator-peoples-search-alternative'
     : 'extract-sales-navigator-peoples-search';
+  if (companyBatches) {
+    const urls = [];
+    let reference;
+    // Prepare and check every URL before the first request that queues work.
+    for (let index = 0; index < companyBatches.length; index++) {
+      const batch = companyBatches[index];
+      let batchUrl = url;
+      if (index) {
+        const generated = await generateSalesNavSearchUrl(auth, { ...active, current_companies: batch });
+        const rawUrl = salesUrl(generated);
+        if (!rawUrl) return linkedinGenerationFailure(generated);
+        const filtered = applyConnectionDegrees(rawUrl, args.connection_degrees, true);
+        if (filtered.error) return filtered;
+        batchUrl = filtered.url;
+      }
+      const signature = salesCompanyBatchSignature(batchUrl, batch, advanced.current_companies_exclude ?? []);
+      if (signature === null || (index && signature !== reference)) return {
+        error: 'Le lien Sales Navigator ne conserve pas toutes les entreprises ou les autres filtres confirmés.',
+        stage: 'search_url_generation',
+      };
+      reference = signature;
+      urls.push(batchUrl);
+    }
+
+    let listId = target.id;
+    let submitted = 0;
+    const perBatch = Math.floor(maxResults / urls.length);
+    const remainder = maxResults % urls.length;
+    for (let index = 0; index < urls.length; index++) {
+      const response = await linkedinExtract(auth, endpoint, {
+        linkedin_sales_navigator_search_url: urls[index],
+        linkedin_people_search_url: urls[index],
+        linkedin_account_id: accountId,
+        generate_email: generateEmail,
+        max_results: perBatch + (index < remainder ? 1 : 0),
+        contact_list_id: listId ?? null,
+        contact_list_name: listId ? null : target.name,
+        contact_list_language: null, contact_list_country: null,
+        exclude_viewed_leads: false, exclude_crm_contacts: false,
+      });
+      const returnedId = positiveId(response.data?.contact_list_id);
+      if (!response.ok || (!listId && !returnedId) || (listId && returnedId && listId !== returnedId)) break;
+      listId ??= returnedId;
+      submitted++;
+    }
+    return {
+      list_id: listId ?? null,
+      list_name: target.name,
+      submitted,
+      total: urls.length,
+      attempted: true,
+    };
+  }
   const response = await linkedinExtract(auth, endpoint, {
     linkedin_sales_navigator_search_url: url, linkedin_people_search_url: url,
     linkedin_account_id: accountId, generate_email: generateEmail, max_results: maxResults,

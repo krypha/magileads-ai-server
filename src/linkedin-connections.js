@@ -11,7 +11,7 @@ export function normalizeConnectionDegrees(value) {
   return validConnectionDegrees(value) && Array.isArray(value) ? [...new Set(value)].sort() : [];
 }
 // Split a Rest.li filter list without losing nested title/location facets.
-function listContents(query, start) {
+export function listContents(query, start) {
   let depth = 0, from = start;
   const items = [];
   for (let i = start; i < query.length; i++) {
